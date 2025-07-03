@@ -1048,3 +1048,72 @@ class TestTaskPriority:
         sorted_tasks = sort_tasks_by_priority(tasks_unsorted)
         sorted_priorities = [t["priority"] for t in sorted_tasks]
         assert sorted_priorities == ["CRITICAL", "HIGH", "NORMAL", "LOW"]
+
+
+class TestTaskTags:
+    def setup_method(self):
+        task_list.clear()
+        self.task = add_task("Tâche pour tags")
+
+    def test_add_tags_to_task(self):
+        add_tags_to_task(self.task["id"], ["urgent", "important"])
+        task = get_task_by_id(self.task["id"])
+        assert "urgent" in task["tags"]
+        assert "important" in task["tags"]
+
+    def test_adding_tags_merges(self):
+        add_tags_to_task(self.task["id"], ["urgent"])
+        add_tags_to_task(self.task["id"], ["important", "urgent"])
+        task = get_task_by_id(self.task["id"])
+        assert sorted(task["tags"]) == ["important", "urgent"]
+
+    def test_remove_tag_from_task(self):
+        add_tags_to_task(self.task["id"], ["urgent", "important"])
+        remove_tag_from_task(self.task["id"], "urgent")
+        task = get_task_by_id(self.task["id"])
+        assert "urgent" not in task["tags"]
+        assert "important" in task["tags"]
+
+    def test_remove_tag_removes_from_tag_list_if_last(self):
+        add_tags_to_task(self.task["id"], ["solo"])
+        remove_tag_from_task(self.task["id"], "solo")
+        tags = get_all_tags()
+        assert "solo" not in tags
+
+    def test_filter_tasks_by_single_tag(self):
+        t1 = add_task("Tâche 1")
+        t2 = add_task("Tâche 2")
+        add_tags_to_task(t1["id"], ["tag1"])
+        add_tags_to_task(t2["id"], ["tag2"])
+        filtered = filter_tasks_by_tags(["tag1"])
+        ids = [t["id"] for t in filtered]
+        assert t1["id"] in ids
+        assert t2["id"] not in ids
+
+    def test_filter_tasks_by_multiple_tags(self):
+        t1 = add_task("Tâche 1")
+        t2 = add_task("Tâche 2")
+        t3 = add_task("Tâche 3")
+        add_tags_to_task(t1["id"], ["tag1"])
+        add_tags_to_task(t2["id"], ["tag2"])
+        add_tags_to_task(t3["id"], ["tag3"])
+        filtered = filter_tasks_by_tags(["tag1", "tag3"])
+        ids = [t["id"] for t in filtered]
+        assert t1["id"] in ids
+        assert t3["id"] in ids
+        assert t2["id"] not in ids
+
+    def test_invalid_tag_empty_or_too_long(self):
+        with pytest.raises(ValueError):
+            add_tags_to_task(self.task["id"], [""])
+        with pytest.raises(ValueError):
+            add_tags_to_task(self.task["id"], ["a"*21])
+
+    def test_get_all_tags_counts(self):
+        t1 = add_task("T1")
+        t2 = add_task("T2")
+        add_tags_to_task(t1["id"], ["tagA", "tagB"])
+        add_tags_to_task(t2["id"], ["tagA"])
+        counts = get_all_tags()
+        assert counts["tagA"] == 2
+        assert counts["tagB"] == 1

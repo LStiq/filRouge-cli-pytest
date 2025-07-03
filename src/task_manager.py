@@ -37,6 +37,7 @@ EMAIL_REGEX = r"^[\w\.-]+@[\w\.-]+\.\w+$"
 
 ALLOWED_PRIORITIES = {"LOW", "NORMAL", "HIGH", "CRITICAL"}
 PRIORITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "NORMAL": 2, "LOW": 3}
+MAX_TAG_LENGTH = 20
 
 def _load_tasks():
     """Charge les tâches depuis le fichier JSON"""
@@ -96,6 +97,11 @@ def _validate_description(description: str):
         raise ValueError("Description cannot exceed 500 characters")
     return description.strip() if description else ""
 
+def _validate_tag(tag: str) -> str:
+    tag = tag.strip()
+    if not tag or len(tag) > MAX_TAG_LENGTH:
+        raise ValueError("Invalid tag validation")
+    return tag
 
 def create_task(title: str, description: str = "") -> Dict:
     """Crée une nouvelle tâche et l'ajoute à la liste"""
@@ -547,3 +553,42 @@ def filter_tasks_by_priority(priority: str) -> list:
 
 def sort_tasks_by_priority(tasks: list) -> list:
     return sorted(tasks, key=lambda t: PRIORITY_ORDER.get(t.get("priority", "NORMAL"), 2))
+
+
+def add_tags_to_task(task_id: str, tags: list[str]) -> None:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    if "tags" not in task:
+        task["tags"] = []
+
+    for tag in tags:
+        tag = _validate_tag(tag)
+        if tag not in task["tags"]:
+            task["tags"].append(tag)
+
+def remove_tag_from_task(task_id: str, tag: str) -> None:
+    task = get_task_by_id(task_id)
+    if not task or "tags" not in task:
+        return
+    tag = _validate_tag(tag)
+    if tag in task["tags"]:
+        task["tags"].remove(tag)
+
+def get_all_tags() -> dict:
+    """Retourne un dict {tag: count} de tous les tags utilisés dans toutes les tâches."""
+    tag_counts = {}
+    for task in task_list:
+        for tag in task.get("tags", []):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    return tag_counts
+
+def filter_tasks_by_tags(tags: list[str]) -> list:
+    """Retourne les tâches qui ont au moins un des tags indiqués."""
+    tags = [ _validate_tag(tag) for tag in tags ]
+    filtered = []
+    for task in task_list:
+        task_tags = set(task.get("tags", []))
+        if task_tags.intersection(tags):
+            filtered.append(task)
+    return filtered

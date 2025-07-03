@@ -22,6 +22,11 @@ def mock_save_users():
     with patch('src.task_manager._save_users') as mock_save:
         yield mock_save
 
+def test_update_task_invalid_id_raises():
+        random_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="Task not found"):
+            update_task(random_id, title="Nouvelle valeur")
+
 class TestTaskManager:
     
     def setup_method(self):
@@ -63,8 +68,8 @@ class TestCreateTask:
     def setup_method(self):
         task_list.clear()
 
-    def test_create_task_with_valid_title(self):
-        create_task("Ma tâche")
+    def test_add_task_with_valid_title(self):
+        add_task("Ma tâche")
         assert len(task_list) == 1
         task = task_list[0]
         assert task["title"] == "Ma tâche"
@@ -72,39 +77,50 @@ class TestCreateTask:
         assert task["status"] == "TODO"
         assert isinstance(task["id"], str)
 
-    def test_create_task_with_valid_title_and_description(self):
-        create_task("Tâche complète", "Description test")
+    def test_add_task_with_valid_title_and_description(self):
+        add_task("Tâche complète", "Description test")
         task = task_list[0]
         assert task["title"] == "Tâche complète"
         assert task["description"] == "Description test"
 
-    def test_create_task_title_strips_spaces(self):
-        create_task("   Nettoyer les espaces   ")
+    def test_add_task_title_strips_spaces(self):
+        add_task("   Nettoyer les espaces   ")
         task = task_list[0]
         assert task["title"] == "Nettoyer les espaces"
 
-    def test_create_task_with_empty_title_raises(self):
+    def test_add_task_with_empty_title_raises(self):
         with pytest.raises(ValueError, match="Title is required"):
-            create_task("   ")
+            add_task("   ")
         assert len(task_list) == 0
 
-    def test_create_task_title_too_long_raises(self):
+    def test_add_task_title_too_long_raises(self):
         long_title = "T" * 101
         with pytest.raises(ValueError, match="Title cannot exceed 100 characters"):
-            create_task(long_title)
+            add_task(long_title)
         assert len(task_list) == 0
 
-    def test_create_task_description_too_long_raises(self):
+    def test_add_task_description_too_long_raises(self):
         long_desc = "D" * 501
         with pytest.raises(ValueError, match="Description cannot exceed 500 characters"):
-            create_task("Valide", long_desc)
+            add_task("Valide", long_desc)
         assert len(task_list) == 0
 
-    def test_create_task_created_at_is_precise(self):
+    def test_add_task_created_at_is_precise(self):
         now = datetime.now()
-        create_task("Horodatée")
+        add_task("Horodatée")
         created = datetime.fromisoformat(task_list[0]["created_at"])
         assert abs((created - now).total_seconds()) < 1.0
+    
+    def test_add_task_with_valid_due_date(self):
+        valid_date = "2025-07-03T12:00:00"
+        task = add_task("Titre", due_date=valid_date)
+        assert "due_date" in task
+        assert task["due_date"] == valid_date
+
+    def test_add_task_invalid_due_date_raises(self):
+        with pytest.raises(ValueError, match="Invalid date format"):
+            add_task("Titre", due_date="32-13-2025")
+
 
 class TestConsultTask:
 
@@ -112,7 +128,7 @@ class TestConsultTask:
         task_list.clear()
 
     def test_get_task_by_id_valid(self):
-        create_task("Tâche à consulter", "Détails ici")
+        add_task("Tâche à consulter", "Détails ici")
         task = task_list[0]
         retrieved = consult_task(task["id"])
         assert retrieved["id"] == task["id"]
@@ -127,6 +143,7 @@ class TestConsultTask:
             consult_task(random_id)
 
     def test_get_task_by_id_invalid_format(self):
+
         with pytest.raises(ValueError, match="Invalid ID format"):
             consult_task("invalid-format")
 
@@ -176,41 +193,41 @@ class TestPagination:
             })
 
     def test_first_page_10_items(self):
-        result = get_tasks_paginated(page=1, size=10)
+        result = search_filter_sort_tasks(page=1, size=10)
         assert len(result["tasks"]) == 10
         assert result["page"] == 1
         assert result["total_items"] == 25
         assert result["total_pages"] == 3
 
     def test_second_page_items(self):
-        result = get_tasks_paginated(page=2, size=10)
+        result = search_filter_sort_tasks(page=2, size=10)
         assert len(result["tasks"]) == 10
         expected_titles = [f"Tâche {i}" for i in range(11, 21)]
         actual_titles = [task["title"] for task in result["tasks"]]
         assert actual_titles == expected_titles
 
     def test_page_beyond_total(self):
-        result = get_tasks_paginated(page=5, size=10)
+        result = search_filter_sort_tasks(page=5, size=10)
         assert result["tasks"] == []
         assert result["total_pages"] == 3
 
     def test_default_pagination(self):
-        result = get_tasks_paginated()
+        result = search_filter_sort_tasks()
         assert result["page"] == 1
         assert result.get("page_size", 20) == 20
         assert len(result["tasks"]) == 20
 
     def test_invalid_page_size(self):
         with pytest.raises(ValueError, match="Invalid page size"):
-            get_tasks_paginated(size=0)
+            search_filter_sort_tasks(size=0)
 
     def test_invalid_page_number(self):
         with pytest.raises(ValueError, match="Invalid page number"):
-            get_tasks_paginated(page=0)
+            search_filter_sort_tasks(page=0)
 
     def test_empty_task_list(self):
         task_list.clear()
-        result = get_tasks_paginated(page=1, size=10)
+        result = search_filter_sort_tasks(page=1, size=10)
         assert result["tasks"] == []
         assert result["total_items"] == 0
         assert result["total_pages"] == 0
@@ -219,37 +236,38 @@ class TestChangeStatus:
 
     def setup_method(self):
         task_list.clear()
-        create_task("Tâche à modifier")
+        add_task("Tâche à modifier")
         self.task = task_list[-1]
 
     def test_valid_status_todo(self):
-        update_status(self.task["id"], "TODO")
+        update_task(self.task["id"], status="TODO")
         updated = next(t for t in task_list if t["id"] == self.task["id"])
         assert updated["status"] == "TODO"
 
     def test_valid_status_ongoing(self):
-        update_status(self.task["id"], "ONGOING")
+        update_task(self.task["id"], status="ONGOING")
         updated = next(t for t in task_list if t["id"] == self.task["id"])
         assert updated["status"] == "ONGOING"
 
     def test_valid_status_done(self):
-        update_status(self.task["id"], "DONE")
+        update_task(self.task["id"], status="DONE")
         updated = next(t for t in task_list if t["id"] == self.task["id"])
         assert updated["status"] == "DONE"
 
     def test_invalid_status(self):
         with pytest.raises(ValueError, match="Invalid status. Allowed values: TODO, ONGOING, DONE"):
-            update_status(self.task["id"], "FINISHED")
+            update_task(self.task["id"], status="FINISHED")
 
     def test_non_existing_task(self):
+        random_id = str(uuid.uuid4())
         with pytest.raises(ValueError, match="Task not found"):
-            update_status("invalid-id", "DONE")
+            update_task(random_id, status="DONE")
 
 class TestUpdateTask:
 
     def setup_method(self):
         task_list.clear()
-        create_task("Tâche à modifier")
+        add_task("Tâche à modifier")
         self.task = task_list[-1]
 
     def test_update_title_only(self):
@@ -282,8 +300,10 @@ class TestUpdateTask:
             update_task(self.task["id"], description=long_desc)
 
     def test_update_non_existing_task(self):
+        random_id = str(uuid.uuid4())
         with pytest.raises(ValueError, match="Task not found"):
-            update_task("invalid-id", title="Test")
+            update_task(task_id=random_id, title="Test")
+        
 
     def test_immutable_fields_ignored(self):
         updated = update_task(self.task["id"], title="Nouveau", description="desc")
@@ -327,34 +347,34 @@ class TestSearchTasks:
         ])
 
     def test_search_in_title_returns_only_matching_tasks(self):
-        result = search_tasks("réparer", search_in="title")
+        result = search_filter_sort_tasks("réparer", search_in="title")
         titles = [t["title"] for t in result["tasks"]]
         assert all("réparer" in t.lower() for t in titles)
         assert len(titles) == 2
 
     def test_search_in_description_returns_only_matching_tasks(self):
-        result = search_tasks("garage", search_in="description")
+        result = search_filter_sort_tasks("garage", search_in="description")
         descriptions = [t["description"] for t in result["tasks"]]
         assert all("garage" in d.lower() for d in descriptions)
         assert len(descriptions) == 1
 
     def test_search_in_title_and_description_returns_all_unique_tasks(self):
-        result = search_tasks("réparer")
-        assert len(result["tasks"]) == 1
-        result2 = search_tasks("fuite")
-        assert len(result2["tasks"]) == 0
+        result = search_filter_sort_tasks("réparer")
+        assert len(result["tasks"]) == 3
+        result2 = search_filter_sort_tasks("fuite")
+        assert len(result2["tasks"]) == 1
 
     def test_search_non_existing_term_returns_empty_list(self):
-        result = search_tasks("inexistant")
+        result = search_filter_sort_tasks("inexistant")
         assert result["tasks"] == []
 
     def test_search_empty_string_returns_all_tasks(self):
-        result = search_tasks("")
+        result = search_filter_sort_tasks("")
         assert len(result["tasks"]) == len(task_list)
 
     def test_search_case_insensitive(self):
-        result_lower = search_tasks("réparer")
-        result_upper = search_tasks("RÉPARER")
+        result_lower = search_filter_sort_tasks("réparer")
+        result_upper = search_filter_sort_tasks("RÉPARER")
         assert result_lower["tasks"] == result_upper["tasks"]
 
     def test_search_results_are_paginated(self):
@@ -366,8 +386,8 @@ class TestSearchTasks:
                 "status": "TODO",
                 "created_at": datetime.now().isoformat()
             })
-        page1 = search_tasks("test", page=1, size=10, search_in="both")
-        page2 = search_tasks("test", page=2, size=10, search_in="both")
+        page1 = search_filter_sort_tasks("test", page=1, size=10, search_in="both")
+        page2 = search_filter_sort_tasks("test", page=2, size=10, search_in="both")
         assert len(page1["tasks"]) == 10
         assert len(page2["tasks"]) == 10
         assert page1["total_items"] == 30
@@ -387,29 +407,29 @@ class TestFilterTasksByStatus:
             })
 
     def test_filter_todo_returns_only_todo_tasks(self):
-        result = filter_tasks_by_status("TODO")
+        result = search_filter_sort_tasks(status="TODO")
         assert all(t["status"] == "TODO" for t in result["tasks"])
         assert len(result["tasks"]) == 1
 
     def test_filter_ongoing_returns_only_ongoing_tasks(self):
-        result = filter_tasks_by_status("ONGOING")
+        result = search_filter_sort_tasks(status="ONGOING")
         assert all(t["status"] == "ONGOING" for t in result["tasks"])
         assert len(result["tasks"]) == 1
 
     def test_filter_done_returns_only_done_tasks(self):
-        result = filter_tasks_by_status("DONE")
+        result = search_filter_sort_tasks(status="DONE")
         assert all(t["status"] == "DONE" for t in result["tasks"])
         assert len(result["tasks"]) == 1
 
     def test_filter_status_with_no_match_returns_empty_list(self):
-        result = filter_tasks_by_status("TODO")
+        result = search_filter_sort_tasks(status="TODO")
         task_list[:] = [t for t in task_list if t["status"] != "TODO"]
-        result = filter_tasks_by_status("TODO")
+        result = search_filter_sort_tasks(status="TODO")
         assert result["tasks"] == []
 
     def test_filter_with_invalid_status_raises(self):
         with pytest.raises(ValueError, match="Invalid filter status"):
-            filter_tasks_by_status("INVALID")
+            search_filter_sort_tasks(status="INVALID")
 
     def test_filter_results_are_paginated(self):
         task_list.clear()
@@ -421,7 +441,7 @@ class TestFilterTasksByStatus:
                 "status": "TODO",
                 "created_at": datetime.now().isoformat()
             })
-        result = filter_tasks_by_status("TODO", page=2, size=10)
+        result = search_filter_sort_tasks(status="TODO", page=2, size=10)
         assert len(result["tasks"]) == 10
         assert result["page"] == 2
         assert result["total_items"] == 25
@@ -438,46 +458,59 @@ class TestSortTasks:
         ])
 
     def test_sort_by_creation_date_asc(self):
-        sorted_tasks = sort_tasks(by="created_at", ascending=True, tasks=task_list)
-        dates = [t["created_at"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(ascending=True, tasks=task_list)
+        dates = [t["created_at"] for t in sorted_tasks["tasks"]]
         assert dates == sorted(dates)
 
     def test_sort_by_creation_date_desc(self):
-        sorted_tasks = sort_tasks(by="created_at", ascending=False, tasks=task_list)
-        dates = [t["created_at"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="created_at", ascending=False, tasks=task_list)
+        dates = [t["created_at"] for t in sorted_tasks["tasks"]]
         assert dates == sorted(dates, reverse=True)
 
     def test_sort_by_title_asc(self):
-        sorted_tasks = sort_tasks(by="title", ascending=True, tasks=task_list)
-        titles = [t["title"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="title", ascending=True, tasks=task_list)
+        titles = [t["title"] for t in sorted_tasks["tasks"]]
         assert titles == sorted(titles)
 
     def test_sort_by_title_desc(self):
-        sorted_tasks = sort_tasks(by="title", ascending=False, tasks=task_list)
-        titles = [t["title"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="title", ascending=False, tasks=task_list)
+        titles = [t["title"] for t in sorted_tasks["tasks"]]
         assert titles == sorted(titles, reverse=True)
 
     def test_sort_by_status_groups_in_order(self):
         # TODO < ONGOING < DONE
-        sorted_tasks = sort_tasks(by="status", ascending=True, tasks=task_list)
+        sorted_tasks = search_filter_sort_tasks(sort_by="status", ascending=True, tasks=task_list)
         order_map = {"TODO": 0, "ONGOING": 1, "DONE": 2}
-        status_order = [order_map[t["status"]] for t in sorted_tasks]
+        status_order = [order_map[t["status"]] for t in sorted_tasks["tasks"]]
         assert status_order == sorted(status_order)
 
     def test_default_sort_is_creation_date_desc(self):
-        sorted_tasks = sort_tasks(by="created_at", ascending=False, tasks=task_list)
-        dates = [t["created_at"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="created_at", ascending=False, tasks=task_list)
+        dates = [t["created_at"] for t in sorted_tasks["tasks"]]
         assert dates == sorted(dates, reverse=True)
 
     def test_invalid_sort_criteria_raises(self):
         with pytest.raises(ValueError, match="Invalid sort criteria"):
-            sort_tasks(by="invalid", ascending=True, tasks=task_list)
+            search_filter_sort_tasks(sort_by="invalid", ascending=True, tasks=task_list)
 
     def test_sort_combined_with_filter(self):
         filtered = [t for t in task_list if t["status"] == "TODO"]
-        sorted_tasks = sort_tasks(by="title", ascending=True, tasks=filtered)
-        titles = [t["title"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="title", ascending=True, tasks=filtered)
+        titles = [t["title"] for t in sorted_tasks["tasks"]]
         assert titles == sorted(titles)
+    
+    def test_sort_by_custom_field(self):
+        task_list.clear()
+        t1 = add_task("Tâche A")
+        t2 = add_task("Tâche B")
+        t1["custom"] = 2
+        t2["custom"] = 1
+
+        sorted_result = search_filter_sort_tasks(sort_by="custom", tasks=[t1, t2])
+        sorted_tasks = sorted_result["tasks"]
+        assert sorted_tasks[0]["custom"] == 1
+        assert sorted_tasks[1]["custom"] == 2
+
 
 class TestCreateUser:
 
@@ -589,7 +622,7 @@ class TestTaskAssignment:
         )
         
         # Créer une tâche de test
-        create_task("Tâche à assigner", "Description test")
+        add_task("Tâche à assigner", "Description test")
         self.task = task_list[0]
 
     def test_assign_task_to_existing_user(self):
@@ -657,8 +690,8 @@ class TestTaskAssignment:
     def test_get_tasks_assigned_to_user(self):
         """Test récupération des tâches assignées à un utilisateur"""
         # Créer plusieurs tâches
-        create_task("Tâche 2", "Autre tâche")
-        create_task("Tâche 3", "Troisième tâche")
+        add_task("Tâche 2", "Autre tâche")
+        add_task("Tâche 3", "Troisième tâche")
         
         # Assigner différentes tâches
         assign_task(task_list[0]["id"], "user-1")
@@ -678,8 +711,8 @@ class TestTaskAssignment:
     def test_get_unassigned_tasks(self):
         """Test récupération des tâches non assignées"""
         # Créer plusieurs tâches
-        create_task("Tâche 2", "Autre tâche")
-        create_task("Tâche 3", "Troisième tâche")
+        add_task("Tâche 2", "Autre tâche")
+        add_task("Tâche 3", "Troisième tâche")
         
         # Assigner seulement une tâche
         assign_task(task_list[0]["id"], "user-1")
@@ -689,10 +722,10 @@ class TestTaskAssignment:
         assert len(unassigned) == 2
         assert all(task.get("assigned_user") is None for task in unassigned)
 
-    def test_create_task_has_assigned_user_field(self):
+    def test_add_task_has_assigned_user_field(self):
         """Test que les nouvelles tâches ont le champ assigned_user"""
         task_list.clear()
-        new_task = create_task("Nouvelle tâche")
+        new_task = add_task("Nouvelle tâche")
         assert "assigned_user" in new_task
         assert new_task["assigned_user"] is None
 
@@ -707,11 +740,11 @@ class TestFilterTasksByUser:
             {"id": "user-3", "name": "Charlie Brown", "email": "charlie@example.com"}
         ])
         
-        create_task("Tâche Alice 1", "Première tâche d'Alice")
-        create_task("Tâche Alice 2", "Deuxième tâche d'Alice")
-        create_task("Tâche Bob", "Tâche de Bob")
-        create_task("Tâche non assignée 1", "Pas d'assignation")
-        create_task("Tâche non assignée 2", "Autre sans assignation")
+        add_task("Tâche Alice 1", "Première tâche d'Alice")
+        add_task("Tâche Alice 2", "Deuxième tâche d'Alice")
+        add_task("Tâche Bob", "Tâche de Bob")
+        add_task("Tâche non assignée 1", "Pas d'assignation")
+        add_task("Tâche non assignée 2", "Autre sans assignation")
         
         assign_task(task_list[0]["id"], "user-1")
         assign_task(task_list[1]["id"], "user-1")
@@ -721,7 +754,7 @@ class TestFilterTasksByUser:
         """ÉTANT DONNÉ QUE j'ai des tâches assignées à différents utilisateurs, 
         LORSQUE je filtre par un utilisateur spécifique, 
         ALORS seules les tâches assignées à cet utilisateur sont retournées"""
-        result = filter_tasks_by_user("user-1")
+        result = search_filter_sort_tasks(user_id="user-1")
         assert len(result["tasks"]) == 2
         assert all(task["assigned_user"] == "user-1" for task in result["tasks"])
         assert result["total_items"] == 2
@@ -730,7 +763,7 @@ class TestFilterTasksByUser:
         assert "Tâche Alice 1" in titles
         assert "Tâche Alice 2" in titles
         
-        result = filter_tasks_by_user("user-2")
+        result = search_filter_sort_tasks(user_id="user-2")
         assert len(result["tasks"]) == 1
         assert result["tasks"][0]["assigned_user"] == "user-2"
         assert result["tasks"][0]["title"] == "Tâche Bob"
@@ -739,7 +772,7 @@ class TestFilterTasksByUser:
         """ÉTANT DONNÉ QUE j'ai des tâches non assignées, 
         LORSQUE je filtre par "tâches non assignées", 
         ALORS seules les tâches sans assignation sont retournées"""
-        result = filter_tasks_by_user("unassigned")
+        result = search_filter_sort_tasks(user_id="unassigned")
         assert len(result["tasks"]) == 2
         assert all(task.get("assigned_user") is None for task in result["tasks"])
         
@@ -752,7 +785,7 @@ class TestFilterTasksByUser:
         """ÉTANT DONNÉ QUE je filtre par un utilisateur qui n'a aucune tâche assignée, 
         LORSQUE j'applique le filtre, 
         ALORS j'obtiens une liste vide"""
-        result = filter_tasks_by_user("user-3")
+        result = search_filter_sort_tasks(user_id="user-3")
         assert result["tasks"] == []
         assert result["total_items"] == 0
         assert result["total_pages"] == 0
@@ -762,18 +795,18 @@ class TestFilterTasksByUser:
         LORSQUE j'applique le filtre, 
         ALORS j'obtiens une erreur "User not found" """
         with pytest.raises(ValueError, match="User not found"):
-            filter_tasks_by_user("nonexistent-user")
+            search_filter_sort_tasks(user_id="nonexistent-user")
 
     def test_filter_by_user_with_pagination(self):
         """Test que le filtrage par utilisateur supporte la pagination"""
         # Créer plus de tâches pour Alice
         for i in range(15):
-            create_task(f"Tâche Alice {i+3}", f"Description {i+3}")
+            add_task(f"Tâche Alice {i+3}", f"Description {i+3}")
             assign_task(task_list[-1]["id"], "user-1")
         
         # Alice a maintenant 17 tâches (2 + 15)
-        page1 = filter_tasks_by_user("user-1", page=1, size=10)
-        page2 = filter_tasks_by_user("user-1", page=2, size=10)
+        page1 = search_filter_sort_tasks(user_id="user-1", page=1, size=10)
+        page2 = search_filter_sort_tasks(user_id="user-1", page=2, size=10)
         
         assert len(page1["tasks"]) == 10
         assert len(page2["tasks"]) == 7
@@ -791,41 +824,41 @@ class TestCombinedFilters:
         ]
         
         # Créer des tâches avec différents statuts et assignations
-        create_task("Réparer ordinateur Alice", "Problème de démarrage")
-        create_task("Acheter matériel", "Pour le projet")
-        create_task("Réparer imprimante Bob", "Bourrage papier")
-        create_task("Nettoyer bureau", "Tâche de maintenance")
-        create_task("Réparer serveur", "Maintenance urgente")
+        add_task("Réparer ordinateur Alice", "Problème de démarrage")
+        add_task("Acheter matériel", "Pour le projet")
+        add_task("Réparer imprimante Bob", "Bourrage papier")
+        add_task("Nettoyer bureau", "Tâche de maintenance")
+        add_task("Réparer serveur", "Maintenance urgente")
         
         # Assigner et définir les statuts
         assign_task(task_list[0]["id"], "user-1")  # Alice
-        update_status(task_list[0]["id"], "TODO")
+        update_task(task_list[0]["id"], status="TODO")
         
         assign_task(task_list[1]["id"], "user-1")  # Alice
-        update_status(task_list[1]["id"], "DONE")
+        update_task(task_list[1]["id"], status="DONE")
         
         assign_task(task_list[2]["id"], "user-2")  # Bob
-        update_status(task_list[2]["id"], "ONGOING")
+        update_task(task_list[2]["id"], status="ONGOING")
         
         # task_list[3] reste non assignée avec statut TODO
-        update_status(task_list[3]["id"], "TODO")
+        update_task(task_list[3]["id"], status="TODO")
         
         # task_list[4] reste non assignée avec statut DONE
-        update_status(task_list[4]["id"], "DONE")
+        update_task(task_list[4]["id"], status="DONE")
 
     def test_combine_user_filter_with_status_filter(self):
         """ÉTANT DONNÉ QUE je combine le filtre utilisateur avec d'autres filtres (statut), 
         LORSQUE j'applique les filtres, 
         ALORS tous les critères sont respectés"""
         # Filtrer tâches TODO d'Alice
-        result = filter_tasks_combined(status="TODO", user_id="user-1")
+        result = search_filter_sort_tasks(status="TODO", user_id="user-1")
         assert len(result["tasks"]) == 1
         assert result["tasks"][0]["title"] == "Réparer ordinateur Alice"
         assert result["tasks"][0]["status"] == "TODO"
         assert result["tasks"][0]["assigned_user"] == "user-1"
         
         # Filtrer tâches DONE non assignées
-        result = filter_tasks_combined(status="DONE", user_id="unassigned")
+        result = search_filter_sort_tasks(status="DONE", user_id="unassigned")
         assert len(result["tasks"]) == 1
         assert result["tasks"][0]["title"] == "Réparer serveur"
         assert result["tasks"][0]["status"] == "DONE"
@@ -834,13 +867,13 @@ class TestCombinedFilters:
     def test_combine_user_filter_with_search(self):
         """Test combinaison filtre utilisateur + recherche"""
         # Rechercher "réparer" dans les tâches d'Alice
-        result = filter_tasks_combined(user_id="user-1", query="réparer", search_in="title")
+        result = search_filter_sort_tasks(user_id="user-1", query="réparer", search_in="title")
         assert len(result["tasks"]) == 1
         assert result["tasks"][0]["title"] == "Réparer ordinateur Alice"
         assert result["tasks"][0]["assigned_user"] == "user-1"
         
         # Rechercher "réparer" dans les tâches non assignées
-        result = filter_tasks_combined(user_id="unassigned", query="réparer", search_in="title")
+        result = search_filter_sort_tasks(user_id="unassigned", query="réparer", search_in="title")
         assert len(result["tasks"]) == 1
         assert result["tasks"][0]["title"] == "Réparer serveur"
         assert result["tasks"][0]["assigned_user"] is None
@@ -848,7 +881,7 @@ class TestCombinedFilters:
     def test_combine_all_filters(self):
         """Test combinaison de tous les filtres"""
         # Status TODO + User Alice + Search "réparer"
-        result = filter_tasks_combined(
+        result = search_filter_sort_tasks(
             status="TODO", 
             user_id="user-1", 
             query="réparer", 
@@ -860,7 +893,7 @@ class TestCombinedFilters:
         assert result["tasks"][0]["assigned_user"] == "user-1"
         
         # Recherche qui ne devrait rien retourner
-        result = filter_tasks_combined(
+        result = search_filter_sort_tasks(
             status="DONE", 
             user_id="user-1", 
             query="impossible", 
@@ -871,23 +904,23 @@ class TestCombinedFilters:
     def test_combined_filters_with_invalid_user_raises_error(self):
         """Test que les filtres combinés valident l'existence de l'utilisateur"""
         with pytest.raises(ValueError, match="User not found"):
-            filter_tasks_combined(status="TODO", user_id="nonexistent")
+            search_filter_sort_tasks(status="TODO", user_id="nonexistent")
 
     def test_combined_filters_with_invalid_status_raises_error(self):
         """Test que les filtres combinés valident le statut"""
         with pytest.raises(ValueError, match="Invalid filter status"):
-            filter_tasks_combined(status="INVALID", user_id="user-1")
+            search_filter_sort_tasks(status="INVALID", user_id="user-1")
 
     def test_combined_filters_with_pagination(self):
         """Test que les filtres combinés supportent la pagination"""
         # Créer plus de tâches TODO pour Alice
         for i in range(15):
-            create_task(f"Tâche TODO Alice {i}", f"Description {i}")
+            add_task(f"Tâche TODO Alice {i}", f"Description {i}")
             assign_task(task_list[-1]["id"], "user-1")
-            update_status(task_list[-1]["id"], "TODO")
+            update_task(task_list[-1]["id"], status="TODO")
         
         # Alice a maintenant 16 tâches TODO (1 + 15)
-        result = filter_tasks_combined(status="TODO", user_id="user-1", page=1, size=10)
+        result = search_filter_sort_tasks(status="TODO", user_id="user-1", page=1, size=10)
         assert len(result["tasks"]) == 10
         assert result["total_items"] == 16
         assert result["total_pages"] == 2
@@ -899,34 +932,34 @@ class TestTaskDueDate:
 
     def test_set_valid_due_date(self):
         future_date = (datetime.now() + timedelta(days=5)).isoformat()
-        set_task_due_date(self.task["id"], future_date)
-        updated_task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], due_date=future_date)
+        updated_task = consult_task(self.task["id"])
         assert updated_task["due_date"] == future_date
 
     def test_modify_due_date(self):
         initial_due = (datetime.now() + timedelta(days=2)).isoformat()
+        update_task(self.task["id"], due_date=initial_due)
         new_due = (datetime.now() + timedelta(days=10)).isoformat()
-        set_task_due_date(self.task["id"], initial_due)
-        set_task_due_date(self.task["id"], new_due)
-        assert get_task_by_id(self.task["id"])["due_date"] == new_due
+        update_task(self.task["id"], due_date=new_due)
+        assert consult_task(self.task["id"])["due_date"] == new_due
 
     def test_remove_due_date(self):
-        set_task_due_date(self.task["id"], None)
-        assert get_task_by_id(self.task["id"]).get("due_date") is None
+        update_task(self.task["id"], due_date="")
+        assert consult_task(self.task["id"]).get("due_date") is None
 
     def test_invalid_date_format(self):
         with pytest.raises(ValueError, match="Invalid date format"):
-            set_task_due_date(self.task["id"], "32-13-2025")
+            update_task(self.task["id"], due_date="32-13-2025")
 
     def test_past_due_date(self):
         past_date = (datetime.now() - timedelta(days=1)).isoformat()
-        set_task_due_date(self.task["id"], past_date)
-        assert get_task_by_id(self.task["id"])["due_date"] == past_date
+        update_task(self.task["id"], due_date=past_date)
+        assert consult_task(self.task["id"])["due_date"] == past_date
 
     def test_task_id_not_found(self):
         random_id = str(uuid.uuid4())
         with pytest.raises(ValueError, match="Task not found"):
-            set_task_due_date(random_id, datetime.now().isoformat())
+            update_task(random_id, datetime.now().isoformat())
 
 
 class TestTaskOverdue:
@@ -937,37 +970,32 @@ class TestTaskOverdue:
     def test_todo_or_ongoing_with_past_due_is_overdue(self):
         past = (datetime.now() - timedelta(days=1)).isoformat()
         for status in ["TODO", "ONGOING"]:
-            update_status(self.task["id"], status)
-            set_task_due_date(self.task["id"], past)
-            task = get_task_by_id(self.task["id"])
+            update_task(self.task["id"], status=status, due_date=past)
+            task = consult_task(self.task["id"])
             assert is_task_overdue(task) is True
 
     def test_done_with_past_due_not_overdue(self):
         past = (datetime.now() - timedelta(days=1)).isoformat()
-        update_status(self.task["id"], "DONE")
-        set_task_due_date(self.task["id"], past)
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], status="DONE", due_date=past)
+        task = consult_task(self.task["id"])
         assert is_task_overdue(task) is False
 
     def test_future_due_date_not_overdue(self):
         future = (datetime.now() + timedelta(days=5)).isoformat()
         for status in ["TODO", "ONGOING", "DONE"]:
-            update_status(self.task["id"], status)
-            set_task_due_date(self.task["id"], future)
-            task = get_task_by_id(self.task["id"])
+            update_task(self.task["id"], status=status, due_date=future)
+            task = consult_task(self.task["id"])
             assert is_task_overdue(task) is False
 
     def test_no_due_date_not_overdue(self):
-        update_status(self.task["id"], "TODO")
-        set_task_due_date(self.task["id"], None)
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], status="TODO", due_date=None)
+        task = consult_task(self.task["id"])
         assert is_task_overdue(task) is False
 
     def test_due_today_not_overdue(self):
         today = datetime.now().date().isoformat()
-        update_status(self.task["id"], "TODO")
-        set_task_due_date(self.task["id"], today)
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], status="TODO", due_date=today)
+        task = consult_task(self.task["id"])
         assert is_task_overdue(task) is False
 
     def test_filter_tasks_combined_returns_only_overdue(self):
@@ -976,27 +1004,21 @@ class TestTaskOverdue:
         today = datetime.now().date().isoformat()
 
         task1 = add_task("Tâche 1", "Overdue TODO")
-        update_status(task1["id"], "TODO")
-        set_task_due_date(task1["id"], past)
+        update_task(task1["id"], status="TODO", due_date=past)
 
         task2 = add_task("Tâche 2", "Overdue ONGOING")
-        update_status(task2["id"], "ONGOING")
-        set_task_due_date(task2["id"], past)
+        update_task(task2["id"], status="ONGOING", due_date=past)
 
-        task3 = add_task("Tâche 3", "Done passé")
-        update_status(task3["id"], "DONE")
-        set_task_due_date(task3["id"], past)
+        task3 = add_task("Tâche 3", "Overdue DONE")
+        update_task(task3["id"], status="DONE", due_date=past)
 
         task4 = add_task("Tâche 4", "Future due")
-        update_status(task4["id"], "TODO")
-        set_task_due_date(task4["id"], future)
+        update_task(task4["id"], status="TODO", due_date=future)
 
         task5 = add_task("Tâche 5", "Due today")
-        update_status(task5["id"], "TODO")
-        set_task_due_date(task5["id"], today)
+        update_task(task5["id"], status="TODO", due_date=today)
 
-        # Appel à filter_tasks_combined avec overdue=True au lieu de filter_tasks_overdue
-        result = filter_tasks_combined(overdue=True)
+        result = search_filter_sort_tasks(overdue=True)
         overdue_tasks = result["tasks"]
 
         overdue_ids = {t["id"] for t in overdue_tasks}
@@ -1012,18 +1034,18 @@ class TestTaskPriority:
         self.task = add_task("Test tâche priorité")
 
     def test_default_priority_is_normal(self):
-        task = get_task_by_id(self.task["id"])
+        task = consult_task(self.task["id"])
         assert task["priority"] == "NORMAL"
 
     def test_set_valid_priorities(self):
         for priority in ["LOW", "NORMAL", "HIGH", "CRITICAL"]:
-            set_task_priority(self.task["id"], priority)
-            task = get_task_by_id(self.task["id"])
+            update_task(self.task["id"], priority=priority)
+            task = consult_task(self.task["id"])
             assert task["priority"] == priority
 
     def test_set_invalid_priority_raises(self):
         with pytest.raises(ValueError, match="Invalid priority"):
-            set_task_priority(self.task["id"], "URGENT")
+            update_task(self.task["id"], priority="URGENT")
 
     def test_add_task_with_invalid_priority_raises(self):
         with pytest.raises(ValueError, match="Invalid priority"):
@@ -1033,20 +1055,21 @@ class TestTaskPriority:
         t1 = add_task("Tâche LOW", priority="LOW")
         t2 = add_task("Tâche HIGH", priority="HIGH")
         t3 = add_task("Tâche NORMAL", priority="NORMAL")
-        low_tasks = filter_tasks_by_priority("LOW")
-        assert any(t["id"] == t1["id"] for t in low_tasks)
-        assert all(t["priority"] == "LOW" for t in low_tasks)
+        low_tasks = search_filter_sort_tasks(priority="LOW")
+        assert any(t["id"] == t1["id"] for t in low_tasks["tasks"])
+        assert all(t["priority"] == "LOW" for t in low_tasks["tasks"])
         with pytest.raises(ValueError):
-            filter_tasks_by_priority("MEGA")
+            search_filter_sort_tasks(priority="MEGA")
 
     def test_sort_tasks_by_priority_order(self):
+        task_list.clear()
         t1 = add_task("Critique", priority="CRITICAL")
         t2 = add_task("Haute", priority="HIGH")
         t3 = add_task("Normale", priority="NORMAL")
         t4 = add_task("Basse", priority="LOW")
         tasks_unsorted = [t3, t4, t2, t1]
-        sorted_tasks = sort_tasks_by_priority(tasks_unsorted)
-        sorted_priorities = [t["priority"] for t in sorted_tasks]
+        sorted_tasks = search_filter_sort_tasks(sort_by="priority", tasks=tasks_unsorted)
+        sorted_priorities = [t["priority"] for t in sorted_tasks["tasks"]]
         assert sorted_priorities == ["CRITICAL", "HIGH", "NORMAL", "LOW"]
 
 
@@ -1056,37 +1079,35 @@ class TestTaskTags:
         self.task = add_task("Tâche pour tags")
 
     def test_add_tags_to_task(self):
-        add_tags_to_task(self.task["id"], ["urgent", "important"])
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], add_tags=["urgent", "important"])
+        task = consult_task(self.task["id"])
         assert "urgent" in task["tags"]
         assert "important" in task["tags"]
 
     def test_adding_tags_merges(self):
-        add_tags_to_task(self.task["id"], ["urgent"])
-        add_tags_to_task(self.task["id"], ["important", "urgent"])
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], add_tags=["urgent"])
+        update_task(self.task["id"], add_tags=["important", "urgent"])
+        task = consult_task(self.task["id"])
         assert sorted(task["tags"]) == ["important", "urgent"]
 
     def test_remove_tag_from_task(self):
-        add_tags_to_task(self.task["id"], ["urgent", "important"])
-        remove_tag_from_task(self.task["id"], "urgent")
-        task = get_task_by_id(self.task["id"])
+        update_task(self.task["id"], add_tags=["urgent", "important"], remove_tags=["urgent"])
+        task = consult_task(self.task["id"])
         assert "urgent" not in task["tags"]
         assert "important" in task["tags"]
 
     def test_remove_tag_removes_from_tag_list_if_last(self):
-        add_tags_to_task(self.task["id"], ["solo"])
-        remove_tag_from_task(self.task["id"], "solo")
+        update_task(self.task["id"], add_tags=["solo"], remove_tags=["solo"])
         tags = get_all_tags()
         assert "solo" not in tags
 
     def test_filter_tasks_by_single_tag(self):
         t1 = add_task("Tâche 1")
         t2 = add_task("Tâche 2")
-        add_tags_to_task(t1["id"], ["tag1"])
-        add_tags_to_task(t2["id"], ["tag2"])
-        filtered = filter_tasks_by_tags(["tag1"])
-        ids = [t["id"] for t in filtered]
+        update_task(t1["id"], add_tags=["tag1"])
+        update_task(t2["id"], add_tags=["tag2"])
+        filtered = search_filter_sort_tasks(tags=["tag1"])
+        ids = [t["id"] for t in filtered["tasks"]]
         assert t1["id"] in ids
         assert t2["id"] not in ids
 
@@ -1094,26 +1115,26 @@ class TestTaskTags:
         t1 = add_task("Tâche 1")
         t2 = add_task("Tâche 2")
         t3 = add_task("Tâche 3")
-        add_tags_to_task(t1["id"], ["tag1"])
-        add_tags_to_task(t2["id"], ["tag2"])
-        add_tags_to_task(t3["id"], ["tag3"])
-        filtered = filter_tasks_by_tags(["tag1", "tag3"])
-        ids = [t["id"] for t in filtered]
+        update_task(t1["id"], add_tags=["tag1"])
+        update_task(t2["id"], add_tags=["tag2"])
+        update_task(t3["id"], add_tags=["tag3"])
+        filtered = search_filter_sort_tasks(tags=["tag1", "tag3"])
+        ids = [t["id"] for t in filtered["tasks"]]
         assert t1["id"] in ids
         assert t3["id"] in ids
         assert t2["id"] not in ids
 
     def test_invalid_tag_empty_or_too_long(self):
         with pytest.raises(ValueError):
-            add_tags_to_task(self.task["id"], [""])
+            update_task(self.task["id"], add_tags=[""])
         with pytest.raises(ValueError):
-            add_tags_to_task(self.task["id"], ["a"*21])
+            update_task(self.task["id"], add_tags=["a"*21])
 
     def test_get_all_tags_counts(self):
         t1 = add_task("T1")
         t2 = add_task("T2")
-        add_tags_to_task(t1["id"], ["tagA", "tagB"])
-        add_tags_to_task(t2["id"], ["tagA"])
+        update_task(t1["id"], add_tags=["tagA", "tagB"])
+        update_task(t2["id"], add_tags=["tagA"])
         counts = get_all_tags()
         assert counts["tagA"] == 2
         assert counts["tagB"] == 1
@@ -1148,7 +1169,7 @@ class TestTaskHistory:
         )
 
     def test_update_status_records_history(self):
-        update_status(self.task["id"], "DONE")
+        update_task(self.task["id"], status="DONE")
         history = get_task_history(self.task["id"])
         assert any(
             e["event"] == "status_updated" and
@@ -1174,10 +1195,8 @@ class TestTaskHistory:
         )
 
     def test_due_date_priority_tags_record_history(self):
-        set_task_due_date(self.task["id"], (datetime.now() + timedelta(days=2)).isoformat())
-        set_task_priority(self.task["id"], "HIGH")
-        add_tags_to_task(self.task["id"], ["tag1"])
-        remove_tag_from_task(self.task["id"], "tag1")
+        update_task(self.task["id"], priority="HIGH", add_tags=["tag1"],due_date=(datetime.now() + timedelta(days=2)).isoformat())
+        update_task(self.task["id"], remove_tags=["tag1"])
         history = get_task_history(self.task["id"])
         events = {e["event"] for e in history["history"]}
         assert "due_date_updated" in events
@@ -1202,3 +1221,15 @@ class TestTaskHistory:
 
         timestamps = [e["timestamp"] for e in result_page_1["history"]]
         assert timestamps == sorted(timestamps, reverse=True)
+
+    def test_add_history_event_creates_history_list(self):
+        task = {"id": "test123", "title": "Tâche sans history"}
+
+        add_history_event(task, "test_event", {"foo": "bar"})
+
+        assert "history" in task
+        assert isinstance(task["history"], list)
+        assert len(task["history"]) == 1
+        assert task["history"][0]["event"] == "test_event"
+        assert task["history"][0]["details"] == {"foo": "bar"}
+

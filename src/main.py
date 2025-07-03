@@ -207,7 +207,6 @@ def filter(status, user, search, page, size):
             console.print("Aucune tâche trouvée avec ces critères.", style="yellow")
             return
         
-        # Construire le titre avec les filtres appliqués
         filters = []
         if status:
             filters.append(f"statut: {status}")
@@ -248,7 +247,6 @@ def filter(status, user, search, page, size):
         
         console.print(table)
         
-        # Afficher les informations de pagination
         if result["total_pages"] > 1:
             console.print(f"\nPage {result['page']}/{result['total_pages']} - {result['total_items']} tâche(s) au total", style="dim")
             
@@ -273,7 +271,6 @@ def user_filter(user_id, page, size):
                 console.print(f"Aucune tâche assignée à {user_name}.", style="yellow")
             return
         
-        # Construire le titre
         if user_id == "unassigned":
             title = "Tâches non assignées"
         else:

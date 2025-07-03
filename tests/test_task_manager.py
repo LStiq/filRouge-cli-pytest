@@ -894,3 +894,39 @@ class TestCombinedFilters:
         assert len(result["tasks"]) == 10
         assert result["total_items"] == 16
         assert result["total_pages"] == 2
+
+class TestTaskDueDate:
+    def setup_method(self):
+        task_list.clear()
+        self.task = add_task("Rendre le rapport", "Important")
+
+    def test_set_valid_due_date(self):
+        future_date = (datetime.now() + timedelta(days=5)).isoformat()
+        set_task_due_date(self.task["id"], future_date)
+        updated_task = get_task_by_id(self.task["id"])
+        assert updated_task["due_date"] == future_date
+
+    def test_modify_due_date(self):
+        initial_due = (datetime.now() + timedelta(days=2)).isoformat()
+        new_due = (datetime.now() + timedelta(days=10)).isoformat()
+        set_task_due_date(self.task["id"], initial_due)
+        set_task_due_date(self.task["id"], new_due)
+        assert get_task_by_id(self.task["id"])["due_date"] == new_due
+
+    def test_remove_due_date(self):
+        set_task_due_date(self.task["id"], None)
+        assert get_task_by_id(self.task["id"]).get("due_date") is None
+
+    def test_invalid_date_format(self):
+        with pytest.raises(ValueError, match="Invalid date format"):
+            set_task_due_date(self.task["id"], "32-13-2025")
+
+    def test_past_due_date(self):
+        past_date = (datetime.now() - timedelta(days=1)).isoformat()
+        set_task_due_date(self.task["id"], past_date)
+        assert get_task_by_id(self.task["id"])["due_date"] == past_date
+
+    def test_task_id_not_found(self):
+        random_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="Task not found"):
+            set_task_due_date(random_id, datetime.now().isoformat())

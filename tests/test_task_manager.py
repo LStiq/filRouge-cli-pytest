@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, \
     get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list, \
-    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists
+    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists, \
+    add_task, set_task_due_date, get_task_by_id, task_list
 
 @pytest.fixture(autouse=True)
 def mock_save_tasks():
@@ -695,3 +696,39 @@ class TestTaskAssignment:
         new_task = create_task("Nouvelle tâche")
         assert "assigned_user" in new_task
         assert new_task["assigned_user"] is None
+
+class TestTaskDueDate:
+    def setup_method(self):
+        task_list.clear()
+        self.task = add_task("Rendre le rapport", "Important")
+
+    def test_set_valid_due_date(self):
+        future_date = (datetime.now() + timedelta(days=5)).isoformat()
+        set_task_due_date(self.task["id"], future_date)
+        updated_task = get_task_by_id(self.task["id"])
+        assert updated_task["due_date"] == future_date
+
+    def test_modify_due_date(self):
+        initial_due = (datetime.now() + timedelta(days=2)).isoformat()
+        new_due = (datetime.now() + timedelta(days=10)).isoformat()
+        set_task_due_date(self.task["id"], initial_due)
+        set_task_due_date(self.task["id"], new_due)
+        assert get_task_by_id(self.task["id"])["due_date"] == new_due
+
+    def test_remove_due_date(self):
+        set_task_due_date(self.task["id"], None)
+        assert get_task_by_id(self.task["id"]).get("due_date") is None
+
+    def test_invalid_date_format(self):
+        with pytest.raises(ValueError, match="Invalid date format"):
+            set_task_due_date(self.task["id"], "32-13-2025")
+
+    def test_past_due_date(self):
+        past_date = (datetime.now() - timedelta(days=1)).isoformat()
+        set_task_due_date(self.task["id"], past_date)
+        assert get_task_by_id(self.task["id"])["due_date"] == past_date
+
+    def test_task_id_not_found(self):
+        random_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="Task not found"):
+            set_task_due_date(random_id, datetime.now().isoformat())

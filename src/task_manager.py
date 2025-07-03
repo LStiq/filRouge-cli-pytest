@@ -342,7 +342,6 @@ def user_exists(user_id: str) -> bool:
 
 def assign_task(task_id: str, user_id: Optional[str] = None) -> Dict:
     """Assigne une tâche à un utilisateur ou la désassigne"""
-    # Vérifier que la tâche existe
     task = None
     for t in task_list:
         if str(t["id"]) == str(task_id):
@@ -352,13 +351,11 @@ def assign_task(task_id: str, user_id: Optional[str] = None) -> Dict:
     if not task:
         raise ValueError("Task not found")
     
-    # Si user_id est fourni, vérifier qu'il existe
     if user_id is not None and user_id.strip():
-        if not user_exists(user_id):
+        if not user_exists(user_id.strip()):
             raise ValueError("User not found")
         task["assigned_user"] = str(user_id).strip()
     else:
-        # Désassigner la tâche
         task["assigned_user"] = None
     
     _save_tasks(task_list)
@@ -371,3 +368,55 @@ def get_tasks_assigned_to_user(user_id: str) -> List[Dict]:
 def get_unassigned_tasks() -> List[Dict]:
     """Récupère toutes les tâches non assignées"""
     return [task for task in task_list if not task.get("assigned_user")]
+
+def set_task_due_date(task_id: str, due_date: Optional[str]) -> Dict:
+    task = get_task_by_id(task_id)
+
+    if due_date is None:
+        task.pop("due_date", None)
+    else:
+        try:
+            parsed_date = datetime.fromisoformat(due_date)
+        except ValueError:
+            raise ValueError("Invalid date format")
+        task["due_date"] = parsed_date.isoformat()
+
+    _save_tasks(task_list)
+    return task
+
+
+def add_task(title: str, description: str = "", due_date: Optional[str] = None) -> Dict:
+    """Ajoute une tâche avec option de date d’échéance (alternative à create_task)"""
+    validated_title = _validate_title(title)
+    validated_description = _validate_description(description)
+
+    task = {
+        "id": str(uuid.uuid4()),
+        "title": validated_title,
+        "description": validated_description,
+        "status": "TODO",
+        "created_at": datetime.now().isoformat()
+    }
+
+    if due_date:
+        try:
+            parsed_date = datetime.fromisoformat(due_date)
+        except ValueError:
+            raise ValueError("Invalid date format")
+        task["due_date"] = parsed_date.isoformat()
+
+    task_list.append(task)
+    _save_tasks(task_list)
+    return task
+
+def get_task_by_id(task_id: str) -> Dict:
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        raise ValueError("Invalid ID format")
+
+    for task in task_list:
+        if str(task["id"]) == task_id:
+            return task
+
+    raise ValueError("Task not found")

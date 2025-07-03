@@ -1117,3 +1117,88 @@ class TestTaskTags:
         counts = get_all_tags()
         assert counts["tagA"] == 2
         assert counts["tagB"] == 1
+
+class TestTaskHistory:
+    def setup_method(self):
+        task_list.clear()
+        self.task = add_task("Titre initial", "Desc initiale")
+
+    def test_creation_event_exists(self):
+        history = get_task_history(self.task["id"])
+        assert any(e["event"] == "creation" for e in history["history"])
+
+    def test_update_title_records_history(self):
+        update_task(self.task["id"], "Nouveau titre")
+        history = get_task_history(self.task["id"])
+        assert any(
+            e["event"] == "title_updated" and
+            e["details"]["old"] == "Titre initial" and
+            e["details"]["new"] == "Nouveau titre"
+            for e in history["history"]
+        )
+
+    def test_update_description_records_history(self):
+        update_task(self.task["id"], description="Nouvelle desc")
+        history = get_task_history(self.task["id"])
+        assert any(
+            e["event"] == "description_updated" and
+            e["details"]["old"] == "Desc initiale" and
+            e["details"]["new"] == "Nouvelle desc"
+            for e in history["history"]
+        )
+
+    def test_update_status_records_history(self):
+        update_status(self.task["id"], "DONE")
+        history = get_task_history(self.task["id"])
+        assert any(
+            e["event"] == "status_updated" and
+            e["details"]["old"] == "TODO" and
+            e["details"]["new"] == "DONE"
+            for e in history["history"]
+        )
+
+    def test_assign_unassign_user_records_history(self):
+        assign_user(self.task["id"], "user123")
+        history = get_task_history(self.task["id"])
+        assert any(
+            e["event"] == "user_assigned" and
+            e["details"]["user_id"] == "user123"
+            for e in history["history"]
+        )
+        assign_user(self.task["id"], None)
+        history = get_task_history(self.task["id"])
+        assert any(
+            e["event"] == "user_unassigned" and
+            e["details"]["user_id"] is None
+            for e in history["history"]
+        )
+
+    def test_due_date_priority_tags_record_history(self):
+        set_task_due_date(self.task["id"], (datetime.now() + timedelta(days=2)).isoformat())
+        set_task_priority(self.task["id"], "HIGH")
+        add_tags_to_task(self.task["id"], ["tag1"])
+        remove_tag_from_task(self.task["id"], "tag1")
+        history = get_task_history(self.task["id"])
+        events = {e["event"] for e in history["history"]}
+        assert "due_date_updated" in events
+        assert "priority_updated" in events
+        assert "tag_added" in events
+        assert "tag_removed" in events
+
+    def test_history_is_paginated_and_sorted(self):
+        for i in range(25):
+            update_task(self.task["id"], f"Titre {i}")
+
+        result_page_1 = get_task_history(self.task["id"], page=1, size=10)
+        result_page_2 = get_task_history(self.task["id"], page=2, size=10)
+        result_page_3 = get_task_history(self.task["id"], page=3, size=10)
+
+        assert result_page_1["page"] == 1
+        assert len(result_page_1["history"]) == 10
+        assert result_page_2["page"] == 2
+        assert len(result_page_2["history"]) == 10
+        assert result_page_3["page"] == 3
+        assert len(result_page_3["history"]) == 6
+
+        timestamps = [e["timestamp"] for e in result_page_1["history"]]
+        assert timestamps == sorted(timestamps, reverse=True)

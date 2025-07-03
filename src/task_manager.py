@@ -136,28 +136,43 @@ def consult_task(task_id: str) -> Dict:
 def update_task(task_id, title=None, description=None):
     for task in task_list:
         if str(task["id"]) == str(task_id):
+            changed = False
             if title is not None:
-                task["title"] = _validate_title(title)
+                new_title = _validate_title(title)
+                if task["title"] != new_title:
+                    old_title = task["title"]
+                    task["title"] = new_title
+                    _add_history_event(task, "title_updated", {"old": old_title, "new": new_title})
+                    changed = True
 
             if description is not None:
-                task["description"] = _validate_description(description)
+                new_desc = _validate_description(description)
+                if task.get("description", "") != new_desc:
+                    old_desc = task.get("description", "")
+                    task["description"] = new_desc
+                    _add_history_event(task, "description_updated", {"old": old_desc, "new": new_desc})
+                    changed = True
 
-            _save_tasks(task_list)
+            if changed:
+                _save_tasks(task_list)
             return task
 
     raise ValueError("Task not found")
 
-def update_status(task_id: str, status: str) -> Dict:
-    """Met à jour le statut d'une tâche"""
+
+def update_status(task_id: str, status: str) -> dict:
     allowed_statuses = {"TODO", "ONGOING", "DONE"}
 
     if status not in allowed_statuses:
         raise ValueError("Invalid status. Allowed values: TODO, ONGOING, DONE")
 
     for task in task_list:
-        if task["id"] == task_id:
-            task["status"] = status
-            _save_tasks(task_list)
+        if str(task["id"]) == str(task_id):
+            if task.get("status") != status:
+                old_status = task.get("status")
+                task["status"] = status
+                _add_history_event(task, "status_updated", {"old": old_status, "new": status})
+                _save_tasks(task_list)
             return task
 
     raise ValueError("Task not found")
@@ -384,18 +399,42 @@ def get_unassigned_tasks() -> List[Dict]:
 
 def set_task_due_date(task_id: str, due_date: Optional[str]) -> Dict:
     task = get_task_by_id(task_id)
-
+    
+    old_due_date = task.get("due_date")
+    
     if due_date is None:
         task.pop("due_date", None)
+        new_due_date = None
     else:
         try:
             parsed_date = datetime.fromisoformat(due_date)
         except ValueError:
             raise ValueError("Invalid date format")
-        task["due_date"] = parsed_date.isoformat()
+        new_due_date = parsed_date.isoformat()
+        task["due_date"] = new_due_date
+
+    task.setdefault("history", []).append({
+        "event": "due_date_updated",
+        "timestamp": datetime.now().isoformat(),
+        "details": {
+            "old_due_date": old_due_date,
+            "new_due_date": new_due_date
+        }
+    })
 
     _save_tasks(task_list)
     return task
+
+
+def assign_user(task_id: str, user_id: str | None) -> None:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    old_user = task.get("assigned_user")
+    if old_user != user_id:
+        task["assigned_user"] = user_id
+        action = "assigned" if user_id else "unassigned"
+        _add_history_event(task, f"user_{action}", {"user_id": user_id})
 
 
 def add_task(title: str, description: str = "", due_date: Optional[str] = None, priority: str = "NORMAL") -> Dict:
@@ -414,7 +453,8 @@ def add_task(title: str, description: str = "", due_date: Optional[str] = None, 
         "description": validated_description,
         "status": "TODO",
         "created_at": datetime.now().isoformat(),
-        "priority": priority
+        "priority": priority,
+        "history": []
     }
 
     if due_date:
@@ -424,9 +464,21 @@ def add_task(title: str, description: str = "", due_date: Optional[str] = None, 
             raise ValueError("Invalid date format")
         task["due_date"] = parsed_date.isoformat()
 
+    task["history"].append({
+        "event": "creation",
+        "timestamp": datetime.now().isoformat(),
+        "details": {
+            "title": validated_title,
+            "description": validated_description,
+            "priority": priority,
+            "due_date": task.get("due_date")
+        }
+    })
+
     task_list.append(task)
     _save_tasks(task_list)
     return task
+
 
 
 def get_task_by_id(task_id: str) -> Dict:
@@ -592,3 +644,69 @@ def filter_tasks_by_tags(tags: list[str]) -> list:
         if task_tags.intersection(tags):
             filtered.append(task)
     return filtered
+
+def _add_history_event(task: dict, event_type: str, details: dict) -> None:
+    if "history" not in task:
+        task["history"] = []
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "event": event_type,
+        "details": details
+    }
+    task["history"].append(event)
+
+def set_task_priority(task_id: str, priority: str) -> None:
+    allowed = {"LOW", "NORMAL", "HIGH", "CRITICAL"}
+    if priority not in allowed:
+        raise ValueError(f"Invalid priority. Allowed values: {', '.join(allowed)}")
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    old_priority = task.get("priority")
+    if old_priority != priority:
+        task["priority"] = priority
+        _add_history_event(task, "priority_updated", {"old": old_priority, "new": priority})
+
+def add_tags_to_task(task_id: str, tags: list[str]) -> None:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    old_tags = set(task.get("tags", []))
+    if "tags" not in task:
+        task["tags"] = []
+    new_tags = set()
+    for tag in tags:
+        tag = _validate_tag(tag)
+        if tag not in task["tags"]:
+            task["tags"].append(tag)
+            new_tags.add(tag)
+    for tag in new_tags:
+        _add_history_event(task, "tag_added", {"tag": tag})
+
+def remove_tag_from_task(task_id: str, tag: str) -> None:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    tag = _validate_tag(tag)
+    if tag in task.get("tags", []):
+        task["tags"].remove(tag)
+        _add_history_event(task, "tag_removed", {"tag": tag})
+
+def get_task_history(task_id: str, page: int = 1, size: int = 10) -> dict:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    history = task.get("history", [])
+    history_sorted = sorted(history, key=lambda e: e["timestamp"], reverse=True)
+    total_items = len(history_sorted)
+    total_pages = (total_items + size - 1) // size
+    start = (page - 1) * size
+    end = start + size
+    page_items = history_sorted[start:end]
+    return {
+        "history": page_items,
+        "page": page,
+        "page_size": size,
+        "total_items": total_items,
+        "total_pages": total_pages
+    }

@@ -274,6 +274,21 @@ def create_user(name: str, email: str) -> dict:
     user_list.append(user)
     return user
 
+def list_users(page: int = 1, size: int = 20) -> dict:
+    sorted_users = sorted(user_list, key=lambda u: u["name"].lower())
+    total_items = len(sorted_users)
+    total_pages = (total_items + size - 1) // size
+
+    start = (page - 1) * size
+    end = start + size
+    paginated = sorted_users[start:end]
+
+    return {
+        "users": paginated,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "current_page": page,
+    }
 
 def get_tasks() -> List[Dict]:
     """Récupère la liste des tâches"""

@@ -505,3 +505,37 @@ class TestCreateUser:
         long_name = "A" * 51
         with pytest.raises(ValueError, match="Name cannot exceed 50 characters"):
             create_user(long_name, "david@example.com")
+
+
+class TestListUsers:
+
+    def setup_method(self):
+        user_list.clear()
+        self.users = [
+            create_user("Zoe", "zoe@example.com"),
+            create_user("Alice", "alice@example.com"),
+            create_user("Bob", "bob@example.com"),
+        ]
+
+    def test_list_users_returns_all_users_sorted_by_name(self):
+        result = list_users()
+        names = [u["name"] for u in result["users"]]
+        assert names == sorted(names)
+
+    def test_list_users_returns_paginated_results(self):
+        user_list.clear()
+        for i in range(30):
+            create_user(f"User{i}", f"user{i}@example.com")
+
+        page1 = list_users(page=1, size=10)
+        page2 = list_users(page=2, size=10)
+
+        assert len(page1["users"]) == 10
+        assert len(page2["users"]) == 10
+        assert page1["total_items"] == 30
+        assert page1["total_pages"] == 3
+
+    def test_list_users_returns_empty_list_when_none_exist(self):
+        user_list.clear()
+        result = list_users()
+        assert result["users"] == []

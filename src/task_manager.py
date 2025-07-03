@@ -112,7 +112,6 @@ def create_task(title: str, description: str = "") -> Dict:
     return task
 
 def consult_task(task_id: str) -> Dict:
-    """Consulte une tâche par son ID"""
     try:
         uuid.UUID(str(task_id))
     except ValueError:
@@ -120,6 +119,7 @@ def consult_task(task_id: str) -> Dict:
 
     for task in task_list:
         if str(task["id"]) == str(task_id):
+            task["overdue"] = is_task_overdue(task)
             return task
 
     raise ValueError("Task not found")
@@ -165,7 +165,6 @@ def delete_task(task_id: str):
     _save_tasks(task_list)
 
 def get_tasks_paginated(page: int = 1, size: int = 20) -> Dict:
-    """Retourne une page de tâches avec infos de pagination"""
     if size <= 0:
         raise ValueError("Invalid page size")
     if page <= 0:
@@ -178,6 +177,9 @@ def get_tasks_paginated(page: int = 1, size: int = 20) -> Dict:
     end = start + size
     items = task_list[start:end]
 
+    for task in items:
+        task["overdue"] = is_task_overdue(task)
+
     return {
         "tasks": items,
         "page": page,
@@ -185,6 +187,7 @@ def get_tasks_paginated(page: int = 1, size: int = 20) -> Dict:
         "total_items": total_items,
         "total_pages": total_pages
     }
+
 
 def paginate(items: List[Dict], page: int, size: int) -> List[Dict]:
     if page <= 0 or size <= 0:
@@ -448,18 +451,16 @@ def filter_tasks_by_user(user_id: Optional[str] = None, page: int = 1, size: int
 
 def filter_tasks_combined(status: Optional[str] = None, user_id: Optional[str] = None, 
                          query: Optional[str] = None, search_in: str = "both",
+                         overdue: Optional[bool] = None,
                          page: int = 1, size: int = 20) -> Dict:
-    """Filtre les tâches avec plusieurs critères combinés"""
     filtered = task_list
 
-    # Filtre par statut
     if status is not None:
         allowed_statuses = {"TODO", "ONGOING", "DONE"}
         if status not in allowed_statuses:
             raise ValueError("Invalid filter status")
         filtered = [task for task in filtered if task.get("status") == status]
 
-    # Filtre par utilisateur
     if user_id is not None and user_id != "unassigned":
         if not user_exists(user_id):
             raise ValueError("User not found")
@@ -467,7 +468,6 @@ def filter_tasks_combined(status: Optional[str] = None, user_id: Optional[str] =
     elif user_id == "unassigned":
         filtered = [task for task in filtered if not task.get("assigned_user")]
 
-    # Filtre par recherche
     if query and query.strip():
         query = query.lower()
         search_filtered = []
@@ -493,9 +493,15 @@ def filter_tasks_combined(status: Optional[str] = None, user_id: Optional[str] =
 
         filtered = search_filtered
 
+    if overdue is not None:
+        filtered = [task for task in filtered if is_task_overdue(task) == overdue]
+
     total_items = len(filtered)
     total_pages = (total_items + size - 1) // size
     items = paginate(filtered, page, size)
+
+    for task in items:
+        task["overdue"] = is_task_overdue(task)
 
     return {
         "tasks": items,
@@ -504,3 +510,14 @@ def filter_tasks_combined(status: Optional[str] = None, user_id: Optional[str] =
         "total_items": total_items,
         "total_pages": total_pages
     }
+
+
+
+def is_task_overdue(task):
+    if task.get("due_date") and task["status"] in {"TODO", "ONGOING"}:
+        try:
+            due = datetime.fromisoformat(task["due_date"])
+            return due.date() < datetime.now(timezone.utc).date()
+        except ValueError:
+            return False
+    return False

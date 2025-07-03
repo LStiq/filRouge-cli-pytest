@@ -10,10 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, \
-    get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list, \
-    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists, \
-    add_task, set_task_due_date, get_task_by_id, task_list, filter_tasks_by_user, filter_tasks_combined
+from src.task_manager import *
 
 @pytest.fixture(autouse=True)
 def mock_save_tasks():
@@ -930,3 +927,81 @@ class TestTaskDueDate:
         random_id = str(uuid.uuid4())
         with pytest.raises(ValueError, match="Task not found"):
             set_task_due_date(random_id, datetime.now().isoformat())
+
+
+class TestTaskOverdue:
+    def setup_method(self):
+        task_list.clear()  
+        self.task = add_task("Tâche test", "Description test")
+
+    def test_todo_or_ongoing_with_past_due_is_overdue(self):
+        past = (datetime.now() - timedelta(days=1)).isoformat()
+        for status in ["TODO", "ONGOING"]:
+            update_status(self.task["id"], status)
+            set_task_due_date(self.task["id"], past)
+            task = get_task_by_id(self.task["id"])
+            assert is_task_overdue(task) is True
+
+    def test_done_with_past_due_not_overdue(self):
+        past = (datetime.now() - timedelta(days=1)).isoformat()
+        update_status(self.task["id"], "DONE")
+        set_task_due_date(self.task["id"], past)
+        task = get_task_by_id(self.task["id"])
+        assert is_task_overdue(task) is False
+
+    def test_future_due_date_not_overdue(self):
+        future = (datetime.now() + timedelta(days=5)).isoformat()
+        for status in ["TODO", "ONGOING", "DONE"]:
+            update_status(self.task["id"], status)
+            set_task_due_date(self.task["id"], future)
+            task = get_task_by_id(self.task["id"])
+            assert is_task_overdue(task) is False
+
+    def test_no_due_date_not_overdue(self):
+        update_status(self.task["id"], "TODO")
+        set_task_due_date(self.task["id"], None)
+        task = get_task_by_id(self.task["id"])
+        assert is_task_overdue(task) is False
+
+    def test_due_today_not_overdue(self):
+        today = datetime.now().date().isoformat()
+        update_status(self.task["id"], "TODO")
+        set_task_due_date(self.task["id"], today)
+        task = get_task_by_id(self.task["id"])
+        assert is_task_overdue(task) is False
+
+    def test_filter_tasks_combined_returns_only_overdue(self):
+        past = (datetime.now() - timedelta(days=1)).isoformat()
+        future = (datetime.now() + timedelta(days=1)).isoformat()
+        today = datetime.now().date().isoformat()
+
+        task1 = add_task("Tâche 1", "Overdue TODO")
+        update_status(task1["id"], "TODO")
+        set_task_due_date(task1["id"], past)
+
+        task2 = add_task("Tâche 2", "Overdue ONGOING")
+        update_status(task2["id"], "ONGOING")
+        set_task_due_date(task2["id"], past)
+
+        task3 = add_task("Tâche 3", "Done passé")
+        update_status(task3["id"], "DONE")
+        set_task_due_date(task3["id"], past)
+
+        task4 = add_task("Tâche 4", "Future due")
+        update_status(task4["id"], "TODO")
+        set_task_due_date(task4["id"], future)
+
+        task5 = add_task("Tâche 5", "Due today")
+        update_status(task5["id"], "TODO")
+        set_task_due_date(task5["id"], today)
+
+        # Appel à filter_tasks_combined avec overdue=True au lieu de filter_tasks_overdue
+        result = filter_tasks_combined(overdue=True)
+        overdue_tasks = result["tasks"]
+
+        overdue_ids = {t["id"] for t in overdue_tasks}
+        assert task1["id"] in overdue_ids
+        assert task2["id"] in overdue_ids
+        assert task3["id"] not in overdue_ids
+        assert task4["id"] not in overdue_ids
+        assert task5["id"] not in overdue_ids

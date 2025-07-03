@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-import click
+import click, sys, os
 from rich.console import Console
 from rich.table import Table
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.task_manager import *
 

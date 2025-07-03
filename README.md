@@ -8,6 +8,10 @@ Gestionnaire de tâches minimal développé avec approche TDD en utilisant pytes
 pip install -r requirements.txt
 ```
 
+## Coverage des tests
+
+![alt text](image.png)
+
 ## Utilisation
 
 ### Démarrer l'application CLI

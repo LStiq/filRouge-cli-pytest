@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone
 import uuid
 DATA_FILE = "tasks.json"
+USER_FILE = "users.json"
 
 ## Default data until task creation is ok
 ## TODO: remove
@@ -23,6 +24,12 @@ DEFAULT_TASKS = [
         "description": "Description de la deuxième tâche",
         "status": "DONE"
     }
+]
+
+# Default users for development
+DEFAULT_USERS = [
+    {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
+    {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"}
 ]
 
 EMAIL_REGEX = r"^[\w\.-]+@[\w\.-]+\.\w+$"
@@ -50,6 +57,29 @@ def _save_tasks(tasks_to_save):
 
 task_list = _load_tasks()
 
+def _load_users():
+    """Charge les utilisateurs depuis le fichier JSON"""
+    if os.path.exists(USER_FILE):
+        try:
+            with open(USER_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            _save_users(DEFAULT_USERS)
+            return DEFAULT_USERS.copy()
+    else:
+        _save_users(DEFAULT_USERS)
+        return DEFAULT_USERS.copy()
+
+def _save_users(users_to_save):
+    """Sauvegarde les utilisateurs dans le fichier JSON"""
+    try:
+        with open(USER_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users_to_save, f, ensure_ascii=False, indent=2)
+    except IOError:
+        pass
+
+user_list = _load_users()
+
 def _validate_title(title: str):
     if not title or not title.strip():
         raise ValueError("Title is required")
@@ -73,7 +103,8 @@ def create_task(title: str, description: str = "") -> Dict:
         "title": validated_title,
         "description": validated_description,
         "status": "TODO",
-        "created_at": datetime.now().isoformat(timespec='seconds')
+        "created_at": datetime.now().isoformat(timespec='seconds'),
+        "assigned_user": None
     }
     task_list.append(task)
     _save_tasks(task_list)
@@ -250,8 +281,6 @@ def sort_tasks(by: str = "created_at", ascending: bool = True, tasks: Optional[L
 
     return sorted(tasks, key=sort_key, reverse=not ascending)
 
-user_list = []
-
 def create_user(name: str, email: str) -> dict:
     name = name.strip()
     email = email.strip().lower()
@@ -272,6 +301,7 @@ def create_user(name: str, email: str) -> dict:
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     user_list.append(user)
+    _save_users(user_list)
     return user
 
 def list_users(page: int = 1, size: int = 20) -> dict:
@@ -293,3 +323,51 @@ def list_users(page: int = 1, size: int = 20) -> dict:
 def get_tasks() -> List[Dict]:
     """Récupère la liste des tâches"""
     return task_list
+
+def get_users() -> List[Dict]:
+    """Récupère la liste des utilisateurs"""
+    return _load_users()
+
+def get_user_by_id(user_id: str) -> Optional[Dict]:
+    """Récupère un utilisateur par son ID"""
+    users = _load_users()
+    for user in users:
+        if str(user["id"]) == str(user_id):
+            return user
+    return None
+
+def user_exists(user_id: str) -> bool:
+    """Vérifie si un utilisateur existe"""
+    return get_user_by_id(user_id) is not None
+
+def assign_task(task_id: str, user_id: Optional[str] = None) -> Dict:
+    """Assigne une tâche à un utilisateur ou la désassigne"""
+    # Vérifier que la tâche existe
+    task = None
+    for t in task_list:
+        if str(t["id"]) == str(task_id):
+            task = t
+            break
+    
+    if not task:
+        raise ValueError("Task not found")
+    
+    # Si user_id est fourni, vérifier qu'il existe
+    if user_id is not None and user_id.strip():
+        if not user_exists(user_id):
+            raise ValueError("User not found")
+        task["assigned_user"] = str(user_id).strip()
+    else:
+        # Désassigner la tâche
+        task["assigned_user"] = None
+    
+    _save_tasks(task_list)
+    return task
+
+def get_tasks_assigned_to_user(user_id: str) -> List[Dict]:
+    """Récupère toutes les tâches assignées à un utilisateur"""
+    return [task for task in task_list if task.get("assigned_user") == user_id]
+
+def get_unassigned_tasks() -> List[Dict]:
+    """Récupère toutes les tâches non assignées"""
+    return [task for task in task_list if not task.get("assigned_user")]

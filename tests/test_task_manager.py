@@ -11,11 +11,17 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, \
-    get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list
+    get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list, \
+    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists
 
 @pytest.fixture(autouse=True)
 def mock_save_tasks():
     with patch('src.task_manager._save_tasks') as mock_save:
+        yield mock_save
+
+@pytest.fixture(autouse=True)
+def mock_save_users():
+    with patch('src.task_manager._save_users') as mock_save:
         yield mock_save
 
 class TestTaskManager:
@@ -539,3 +545,153 @@ class TestListUsers:
         user_list.clear()
         result = list_users()
         assert result["users"] == []
+
+class TestUserManager:
+    
+    def setup_method(self):
+        """Initialise les données de test avant chaque test"""
+        global user_list
+        user_list = [
+            {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
+            {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"}
+        ]
+    
+    def test_get_users_returns_list(self):
+        users = get_users()
+        assert isinstance(users, list)
+        assert len(users) == 2
+    
+    def test_get_user_by_id_existing(self):
+        user = get_user_by_id("user-1")
+        assert user is not None
+        assert user["name"] == "Alice Martin"
+        assert user["email"] == "alice@example.com"
+    
+    def test_get_user_by_id_nonexistent(self):
+        user = get_user_by_id("nonexistent")
+        assert user is None
+    
+    def test_user_exists_true(self):
+        assert user_exists("user-1") is True
+        assert user_exists("user-2") is True
+    
+    def test_user_exists_false(self):
+        assert user_exists("nonexistent") is False
+
+class TestTaskAssignment:
+
+    def setup_method(self):
+        task_list.clear()
+        global user_list
+        user_list = [
+            {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
+            {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"}
+        ]
+        
+        # Créer une tâche de test
+        create_task("Tâche à assigner", "Description test")
+        self.task = task_list[0]
+
+    def test_assign_task_to_existing_user(self):
+        """ÉTANT DONNÉ QUE j'ai une tâche existante et un utilisateur existant, 
+        LORSQUE j'assigne la tâche à l'utilisateur, 
+        ALORS l'assignation est enregistrée et visible dans les détails de la tâche"""
+        assigned_task = assign_task(self.task["id"], "user-1")
+        assert assigned_task["assigned_user"] == "user-1"
+        
+        # Vérifier que l'assignation est persistée
+        consulted_task = consult_task(self.task["id"])
+        assert consulted_task["assigned_user"] == "user-1"
+
+    def test_reassign_task_to_different_user(self):
+        """ÉTANT DONNÉ QUE j'ai une tâche déjà assignée, 
+        LORSQUE je l'assigne à un autre utilisateur, 
+        ALORS l'ancienne assignation est remplacée par la nouvelle"""
+        # Première assignation
+        assign_task(self.task["id"], "user-1")
+        
+        # Réassignation
+        reassigned_task = assign_task(self.task["id"], "user-2")
+        assert reassigned_task["assigned_user"] == "user-2"
+        
+        # Vérifier que l'ancienne assignation est remplacée
+        consulted_task = consult_task(self.task["id"])
+        assert consulted_task["assigned_user"] == "user-2"
+
+    def test_unassign_task(self):
+        """ÉTANT DONNÉ QUE j'ai une tâche assignée, 
+        LORSQUE je la désassigne (assigner à null/vide), 
+        ALORS la tâche n'est plus assignée à personne"""
+        # Assigner d'abord
+        assign_task(self.task["id"], "user-1")
+        
+        # Désassigner avec None
+        unassigned_task = assign_task(self.task["id"], None)
+        assert unassigned_task["assigned_user"] is None
+        
+        # Tester aussi avec chaîne vide
+        assign_task(self.task["id"], "user-1")
+        unassigned_task = assign_task(self.task["id"], "")
+        assert unassigned_task["assigned_user"] is None
+
+    def test_assign_task_to_nonexistent_user_raises_error(self):
+        """ÉTANT DONNÉ QUE je tente d'assigner une tâche à un utilisateur inexistant, 
+        LORSQUE j'utilise un ID utilisateur invalide, 
+        ALORS j'obtiens une erreur "User not found" """
+        with pytest.raises(ValueError, match="User not found"):
+            assign_task(self.task["id"], "nonexistent-user")
+
+    def test_assign_nonexistent_task_raises_error(self):
+        """ÉTANT DONNÉ QUE je tente d'assigner une tâche inexistante, 
+        LORSQUE j'utilise un ID de tâche invalide, 
+        ALORS j'obtiens une erreur "Task not found" """
+        fake_task_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="Task not found"):
+            assign_task(fake_task_id, "user-1")
+
+    def test_assign_task_with_whitespace_user_id(self):
+        """Test que les espaces autour de l'ID utilisateur sont nettoyés"""
+        assigned_task = assign_task(self.task["id"], "  user-1  ")
+        assert assigned_task["assigned_user"] == "user-1"
+
+    def test_get_tasks_assigned_to_user(self):
+        """Test récupération des tâches assignées à un utilisateur"""
+        # Créer plusieurs tâches
+        create_task("Tâche 2", "Autre tâche")
+        create_task("Tâche 3", "Troisième tâche")
+        
+        # Assigner différentes tâches
+        assign_task(task_list[0]["id"], "user-1")
+        assign_task(task_list[1]["id"], "user-1")
+        assign_task(task_list[2]["id"], "user-2")
+        
+        # Vérifier les tâches de user-1
+        user1_tasks = get_tasks_assigned_to_user("user-1")
+        assert len(user1_tasks) == 2
+        assert all(task["assigned_user"] == "user-1" for task in user1_tasks)
+        
+        # Vérifier les tâches de user-2
+        user2_tasks = get_tasks_assigned_to_user("user-2")
+        assert len(user2_tasks) == 1
+        assert user2_tasks[0]["assigned_user"] == "user-2"
+
+    def test_get_unassigned_tasks(self):
+        """Test récupération des tâches non assignées"""
+        # Créer plusieurs tâches
+        create_task("Tâche 2", "Autre tâche")
+        create_task("Tâche 3", "Troisième tâche")
+        
+        # Assigner seulement une tâche
+        assign_task(task_list[0]["id"], "user-1")
+        
+        # Les 2 autres tâches doivent être non assignées
+        unassigned = get_unassigned_tasks()
+        assert len(unassigned) == 2
+        assert all(task.get("assigned_user") is None for task in unassigned)
+
+    def test_create_task_has_assigned_user_field(self):
+        """Test que les nouvelles tâches ont le champ assigned_user"""
+        task_list.clear()
+        new_task = create_task("Nouvelle tâche")
+        assert "assigned_user" in new_task
+        assert new_task["assigned_user"] is None

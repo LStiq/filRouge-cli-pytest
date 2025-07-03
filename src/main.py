@@ -4,7 +4,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from task_manager import get_tasks, create_task, consult_task, update_task, delete_task, assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, filter_tasks_by_user, filter_tasks_combined
+from src.task_manager import *
 
 console = Console()
 
@@ -52,7 +52,7 @@ def create():
     description = click.prompt("Description (optionnelle)", type=str, default="")
     
     try:
-        task = create_task(title, description)
+        task = add_task(title=title, description=description)
         console.print(f"Tâche créée avec ID: [bold]{task['id']}[/bold]", style="green")
     except ValueError as e:
         console.print(f"Erreur lors de la création de la tâche: {e}", style="red")
@@ -195,7 +195,7 @@ def unassigned():
 def filter(status, user, search, page, size):
     """Filtrer les tâches avec plusieurs critères"""
     try:
-        result = filter_tasks_combined(
+        result = search_filter_sort_tasks(
             status=status,
             user_id=user,
             query=search,
@@ -207,6 +207,7 @@ def filter(status, user, search, page, size):
             console.print("Aucune tâche trouvée avec ces critères.", style="yellow")
             return
         
+        # Construire le titre avec les filtres appliqués
         filters = []
         if status:
             filters.append(f"statut: {status}")
@@ -247,6 +248,7 @@ def filter(status, user, search, page, size):
         
         console.print(table)
         
+        # Afficher les informations de pagination
         if result["total_pages"] > 1:
             console.print(f"\nPage {result['page']}/{result['total_pages']} - {result['total_items']} tâche(s) au total", style="dim")
             
@@ -260,7 +262,7 @@ def filter(status, user, search, page, size):
 def user_filter(user_id, page, size):
     """Voir les tâches assignées à un utilisateur spécifique"""
     try:
-        result = filter_tasks_by_user(user_id, page, size)
+        result = search_filter_sort_tasks(user_id=user_id, page=page, size=size)
         
         if not result["tasks"]:
             if user_id == "unassigned":
@@ -271,6 +273,7 @@ def user_filter(user_id, page, size):
                 console.print(f"Aucune tâche assignée à {user_name}.", style="yellow")
             return
         
+        # Construire le titre
         if user_id == "unassigned":
             title = "Tâches non assignées"
         else:

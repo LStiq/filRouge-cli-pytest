@@ -81,5 +81,3 @@ pytest --cov=src --cov-report=term-missing
 - ✅ Gestion des utilisateurs
 - ✅ Filtrage par utilisateur assigné
 - ✅ Filtres combinés (statut + utilisateur + recherche)
-
-CHECK LE TASK_LIST pour vérifier que l'ajout se soit bien effectué

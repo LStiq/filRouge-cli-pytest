@@ -35,6 +35,9 @@ DEFAULT_USERS = [
 
 EMAIL_REGEX = r"^[\w\.-]+@[\w\.-]+\.\w+$"
 
+ALLOWED_PRIORITIES = {"LOW", "NORMAL", "HIGH", "CRITICAL"}
+PRIORITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "NORMAL": 2, "LOW": 3}
+
 def _load_tasks():
     """Charge les tâches depuis le fichier JSON"""
     if os.path.exists(DATA_FILE):
@@ -389,17 +392,23 @@ def set_task_due_date(task_id: str, due_date: Optional[str]) -> Dict:
     return task
 
 
-def add_task(title: str, description: str = "", due_date: Optional[str] = None) -> Dict:
-    """Ajoute une tâche avec option de date d’échéance (alternative à create_task)"""
+def add_task(title: str, description: str = "", due_date: Optional[str] = None, priority: str = "NORMAL") -> Dict:
+    """Ajoute une tâche avec option de date d’échéance et priorité (alternative à create_task)"""
+
     validated_title = _validate_title(title)
     validated_description = _validate_description(description)
+
+    ALLOWED_PRIORITIES = {"LOW", "NORMAL", "HIGH", "CRITICAL"}
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(f"Invalid priority. Allowed values: {', '.join(ALLOWED_PRIORITIES)}")
 
     task = {
         "id": str(uuid.uuid4()),
         "title": validated_title,
         "description": validated_description,
         "status": "TODO",
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "priority": priority
     }
 
     if due_date:
@@ -412,6 +421,7 @@ def add_task(title: str, description: str = "", due_date: Optional[str] = None) 
     task_list.append(task)
     _save_tasks(task_list)
     return task
+
 
 def get_task_by_id(task_id: str) -> Dict:
     try:
@@ -521,3 +531,19 @@ def is_task_overdue(task):
         except ValueError:
             return False
     return False
+
+def set_task_priority(task_id: str, priority: str) -> None:
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(f"Invalid priority. Allowed values: {', '.join(ALLOWED_PRIORITIES)}")
+    task = get_task_by_id(task_id)
+    if not task:
+        raise ValueError("Task not found")
+    task["priority"] = priority
+
+def filter_tasks_by_priority(priority: str) -> list:
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(f"Invalid priority. Allowed values: {', '.join(ALLOWED_PRIORITIES)}")
+    return [task for task in task_list if task.get("priority", "NORMAL") == priority]
+
+def sort_tasks_by_priority(tasks: list) -> list:
+    return sorted(tasks, key=lambda t: PRIORITY_ORDER.get(t.get("priority", "NORMAL"), 2))

@@ -1005,3 +1005,46 @@ class TestTaskOverdue:
         assert task3["id"] not in overdue_ids
         assert task4["id"] not in overdue_ids
         assert task5["id"] not in overdue_ids
+
+class TestTaskPriority:
+    def setup_method(self):
+        task_list.clear()
+        self.task = add_task("Test tâche priorité")
+
+    def test_default_priority_is_normal(self):
+        task = get_task_by_id(self.task["id"])
+        assert task["priority"] == "NORMAL"
+
+    def test_set_valid_priorities(self):
+        for priority in ["LOW", "NORMAL", "HIGH", "CRITICAL"]:
+            set_task_priority(self.task["id"], priority)
+            task = get_task_by_id(self.task["id"])
+            assert task["priority"] == priority
+
+    def test_set_invalid_priority_raises(self):
+        with pytest.raises(ValueError, match="Invalid priority"):
+            set_task_priority(self.task["id"], "URGENT")
+
+    def test_add_task_with_invalid_priority_raises(self):
+        with pytest.raises(ValueError, match="Invalid priority"):
+            add_task("Tâche invalide", priority="MEGA")
+
+    def test_filter_tasks_by_priority(self):
+        t1 = add_task("Tâche LOW", priority="LOW")
+        t2 = add_task("Tâche HIGH", priority="HIGH")
+        t3 = add_task("Tâche NORMAL", priority="NORMAL")
+        low_tasks = filter_tasks_by_priority("LOW")
+        assert any(t["id"] == t1["id"] for t in low_tasks)
+        assert all(t["priority"] == "LOW" for t in low_tasks)
+        with pytest.raises(ValueError):
+            filter_tasks_by_priority("MEGA")
+
+    def test_sort_tasks_by_priority_order(self):
+        t1 = add_task("Critique", priority="CRITICAL")
+        t2 = add_task("Haute", priority="HIGH")
+        t3 = add_task("Normale", priority="NORMAL")
+        t4 = add_task("Basse", priority="LOW")
+        tasks_unsorted = [t3, t4, t2, t1]
+        sorted_tasks = sort_tasks_by_priority(tasks_unsorted)
+        sorted_priorities = [t["priority"] for t in sorted_tasks]
+        assert sorted_priorities == ["CRITICAL", "HIGH", "NORMAL", "LOW"]

@@ -25,6 +25,24 @@ python src/main.py --help
 - `users` : Lister les utilisateurs
 - `user-tasks <user_id>` : Voir les tâches d'un utilisateur
 - `unassigned` : Voir les tâches non assignées
+- `filter` : Filtrer avec plusieurs critères (statut, utilisateur, recherche)
+- `user-filter <user_id>` : Filtrer par utilisateur spécifique
+
+### Exemples de filtrage avancé
+```bash
+# Filtrer par statut et utilisateur
+python src/main.py filter --status TODO --user user-1
+
+# Filtrer les tâches non assignées avec recherche
+python src/main.py filter --user unassigned --search "réparer"
+
+# Combinaison de tous les filtres
+python src/main.py filter --status ONGOING --user user-2 --search "urgent"
+
+# Filtrer uniquement par utilisateur
+python src/main.py user-filter user-1
+python src/main.py user-filter unassigned
+```
 
 ### Lancer les tests
 ```bash
@@ -61,5 +79,7 @@ pytest --cov=src --cov-report=term-missing
 - ✅ Tri des tâches
 - ✅ Assignation d'utilisateurs
 - ✅ Gestion des utilisateurs
+- ✅ Filtrage par utilisateur assigné
+- ✅ Filtres combinés (statut + utilisateur + recherche)
 
 CHECK LE TASK_LIST pour vérifier que l'ajout se soit bien effectué

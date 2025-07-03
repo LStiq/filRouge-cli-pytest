@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, \
     get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list, \
-    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists
+    assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, user_exists, \
+    filter_tasks_by_user, filter_tasks_combined
 
 @pytest.fixture(autouse=True)
 def mock_save_tasks():
@@ -695,3 +696,206 @@ class TestTaskAssignment:
         new_task = create_task("Nouvelle tâche")
         assert "assigned_user" in new_task
         assert new_task["assigned_user"] is None
+
+class TestFilterTasksByUser:
+
+    def setup_method(self):
+        task_list.clear()
+        global user_list
+        user_list = [
+            {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
+            {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"},
+            {"id": "user-3", "name": "Charlie Brown", "email": "charlie@example.com"}
+        ]
+        
+        # Créer des tâches de test
+        create_task("Tâche Alice 1", "Première tâche d'Alice")
+        create_task("Tâche Alice 2", "Deuxième tâche d'Alice")
+        create_task("Tâche Bob", "Tâche de Bob")
+        create_task("Tâche non assignée 1", "Pas d'assignation")
+        create_task("Tâche non assignée 2", "Autre sans assignation")
+        
+        # Assigner les tâches
+        assign_task(task_list[0]["id"], "user-1")  # Alice
+        assign_task(task_list[1]["id"], "user-1")  # Alice
+        assign_task(task_list[2]["id"], "user-2")  # Bob
+        # Les 2 dernières restent non assignées
+
+    def test_filter_tasks_by_specific_user_returns_only_assigned_tasks(self):
+        """ÉTANT DONNÉ QUE j'ai des tâches assignées à différents utilisateurs, 
+        LORSQUE je filtre par un utilisateur spécifique, 
+        ALORS seules les tâches assignées à cet utilisateur sont retournées"""
+        # Filtrer par Alice (user-1)
+        result = filter_tasks_by_user("user-1")
+        assert len(result["tasks"]) == 2
+        assert all(task["assigned_user"] == "user-1" for task in result["tasks"])
+        assert result["total_items"] == 2
+        
+        # Vérifier les titres des tâches d'Alice
+        titles = [task["title"] for task in result["tasks"]]
+        assert "Tâche Alice 1" in titles
+        assert "Tâche Alice 2" in titles
+        
+        # Filtrer par Bob (user-2)
+        result = filter_tasks_by_user("user-2")
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["assigned_user"] == "user-2"
+        assert result["tasks"][0]["title"] == "Tâche Bob"
+
+    def test_filter_unassigned_tasks_returns_only_unassigned(self):
+        """ÉTANT DONNÉ QUE j'ai des tâches non assignées, 
+        LORSQUE je filtre par "tâches non assignées", 
+        ALORS seules les tâches sans assignation sont retournées"""
+        result = filter_tasks_by_user("unassigned")
+        assert len(result["tasks"]) == 2
+        assert all(task.get("assigned_user") is None for task in result["tasks"])
+        
+        # Vérifier les titres des tâches non assignées
+        titles = [task["title"] for task in result["tasks"]]
+        assert "Tâche non assignée 1" in titles
+        assert "Tâche non assignée 2" in titles
+
+    def test_filter_by_user_with_no_assigned_tasks_returns_empty_list(self):
+        """ÉTANT DONNÉ QUE je filtre par un utilisateur qui n'a aucune tâche assignée, 
+        LORSQUE j'applique le filtre, 
+        ALORS j'obtiens une liste vide"""
+        # Charlie (user-3) n'a aucune tâche assignée
+        result = filter_tasks_by_user("user-3")
+        assert result["tasks"] == []
+        assert result["total_items"] == 0
+        assert result["total_pages"] == 0
+
+    def test_filter_by_nonexistent_user_raises_error(self):
+        """ÉTANT DONNÉ QUE je filtre par un utilisateur inexistant, 
+        LORSQUE j'applique le filtre, 
+        ALORS j'obtiens une erreur "User not found" """
+        with pytest.raises(ValueError, match="User not found"):
+            filter_tasks_by_user("nonexistent-user")
+
+    def test_filter_by_user_with_pagination(self):
+        """Test que le filtrage par utilisateur supporte la pagination"""
+        # Créer plus de tâches pour Alice
+        for i in range(15):
+            create_task(f"Tâche Alice {i+3}", f"Description {i+3}")
+            assign_task(task_list[-1]["id"], "user-1")
+        
+        # Alice a maintenant 17 tâches (2 + 15)
+        page1 = filter_tasks_by_user("user-1", page=1, size=10)
+        page2 = filter_tasks_by_user("user-1", page=2, size=10)
+        
+        assert len(page1["tasks"]) == 10
+        assert len(page2["tasks"]) == 7
+        assert page1["total_items"] == 17
+        assert page1["total_pages"] == 2
+
+class TestCombinedFilters:
+
+    def setup_method(self):
+        task_list.clear()
+        global user_list
+        user_list = [
+            {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
+            {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"}
+        ]
+        
+        # Créer des tâches avec différents statuts et assignations
+        create_task("Réparer ordinateur Alice", "Problème de démarrage")
+        create_task("Acheter matériel", "Pour le projet")
+        create_task("Réparer imprimante Bob", "Bourrage papier")
+        create_task("Nettoyer bureau", "Tâche de maintenance")
+        create_task("Réparer serveur", "Maintenance urgente")
+        
+        # Assigner et définir les statuts
+        assign_task(task_list[0]["id"], "user-1")  # Alice
+        update_status(task_list[0]["id"], "TODO")
+        
+        assign_task(task_list[1]["id"], "user-1")  # Alice
+        update_status(task_list[1]["id"], "DONE")
+        
+        assign_task(task_list[2]["id"], "user-2")  # Bob
+        update_status(task_list[2]["id"], "ONGOING")
+        
+        # task_list[3] reste non assignée avec statut TODO
+        update_status(task_list[3]["id"], "TODO")
+        
+        # task_list[4] reste non assignée avec statut DONE
+        update_status(task_list[4]["id"], "DONE")
+
+    def test_combine_user_filter_with_status_filter(self):
+        """ÉTANT DONNÉ QUE je combine le filtre utilisateur avec d'autres filtres (statut), 
+        LORSQUE j'applique les filtres, 
+        ALORS tous les critères sont respectés"""
+        # Filtrer tâches TODO d'Alice
+        result = filter_tasks_combined(status="TODO", user_id="user-1")
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["title"] == "Réparer ordinateur Alice"
+        assert result["tasks"][0]["status"] == "TODO"
+        assert result["tasks"][0]["assigned_user"] == "user-1"
+        
+        # Filtrer tâches DONE non assignées
+        result = filter_tasks_combined(status="DONE", user_id="unassigned")
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["title"] == "Réparer serveur"
+        assert result["tasks"][0]["status"] == "DONE"
+        assert result["tasks"][0]["assigned_user"] is None
+
+    def test_combine_user_filter_with_search(self):
+        """Test combinaison filtre utilisateur + recherche"""
+        # Rechercher "réparer" dans les tâches d'Alice
+        result = filter_tasks_combined(user_id="user-1", query="réparer", search_in="title")
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["title"] == "Réparer ordinateur Alice"
+        assert result["tasks"][0]["assigned_user"] == "user-1"
+        
+        # Rechercher "réparer" dans les tâches non assignées
+        result = filter_tasks_combined(user_id="unassigned", query="réparer", search_in="title")
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["title"] == "Réparer serveur"
+        assert result["tasks"][0]["assigned_user"] is None
+
+    def test_combine_all_filters(self):
+        """Test combinaison de tous les filtres"""
+        # Status TODO + User Alice + Search "réparer"
+        result = filter_tasks_combined(
+            status="TODO", 
+            user_id="user-1", 
+            query="réparer", 
+            search_in="title"
+        )
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["title"] == "Réparer ordinateur Alice"
+        assert result["tasks"][0]["status"] == "TODO"
+        assert result["tasks"][0]["assigned_user"] == "user-1"
+        
+        # Recherche qui ne devrait rien retourner
+        result = filter_tasks_combined(
+            status="DONE", 
+            user_id="user-1", 
+            query="impossible", 
+            search_in="title"
+        )
+        assert result["tasks"] == []
+
+    def test_combined_filters_with_invalid_user_raises_error(self):
+        """Test que les filtres combinés valident l'existence de l'utilisateur"""
+        with pytest.raises(ValueError, match="User not found"):
+            filter_tasks_combined(status="TODO", user_id="nonexistent")
+
+    def test_combined_filters_with_invalid_status_raises_error(self):
+        """Test que les filtres combinés valident le statut"""
+        with pytest.raises(ValueError, match="Invalid filter status"):
+            filter_tasks_combined(status="INVALID", user_id="user-1")
+
+    def test_combined_filters_with_pagination(self):
+        """Test que les filtres combinés supportent la pagination"""
+        # Créer plus de tâches TODO pour Alice
+        for i in range(15):
+            create_task(f"Tâche TODO Alice {i}", f"Description {i}")
+            assign_task(task_list[-1]["id"], "user-1")
+            update_status(task_list[-1]["id"], "TODO")
+        
+        # Alice a maintenant 16 tâches TODO (1 + 15)
+        result = filter_tasks_combined(status="TODO", user_id="user-1", page=1, size=10)
+        assert len(result["tasks"]) == 10
+        assert result["total_items"] == 16
+        assert result["total_pages"] == 2

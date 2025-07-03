@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks
+from src.task_manager import get_tasks, task_list, create_task, consult_task, delete_task, update_status, update_task, \
+    get_tasks_paginated, search_tasks, filter_tasks_by_status, sort_tasks, create_user, list_users, user_list
 
 @pytest.fixture(autouse=True)
 def mock_save_tasks():
@@ -473,3 +474,34 @@ class TestSortTasks:
         sorted_tasks = sort_tasks(by="title", ascending=True, tasks=filtered)
         titles = [t["title"] for t in sorted_tasks]
         assert titles == sorted(titles)
+
+class TestCreateUser:
+
+    def setup_method(self):
+        user_list.clear()
+
+    def test_create_user_with_valid_data(self):
+        user = create_user("Alice", "alice@example.com")
+        assert user["name"] == "Alice"
+        assert user["email"] == "alice@example.com"
+        assert "id" in user
+        assert "created_at" in user
+        datetime.fromisoformat(user["created_at"])  # valid ISO date
+
+    def test_create_user_with_duplicate_email_raises_error(self):
+        create_user("Alice", "alice@example.com")
+        with pytest.raises(ValueError, match="Email already in use"):
+            create_user("Bob", "alice@example.com")
+
+    def test_create_user_with_invalid_email_format_raises_error(self):
+        with pytest.raises(ValueError, match="Invalid email format"):
+            create_user("Charlie", "invalid-email")
+
+    def test_create_user_with_empty_name_raises_error(self):
+        with pytest.raises(ValueError, match="Name is required"):
+            create_user("   ", "charlie@example.com")
+
+    def test_create_user_with_name_too_long_raises_error(self):
+        long_name = "A" * 51
+        with pytest.raises(ValueError, match="Name cannot exceed 50 characters"):
+            create_user(long_name, "david@example.com")

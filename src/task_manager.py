@@ -2,8 +2,9 @@
 
 import json
 import os
+import re
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 DATA_FILE = "tasks.json"
 
@@ -23,6 +24,8 @@ DEFAULT_TASKS = [
         "status": "DONE"
     }
 ]
+
+EMAIL_REGEX = r"^[\w\.-]+@[\w\.-]+\.\w+$"
 
 def _load_tasks():
     """Charge les tâches depuis le fichier JSON"""
@@ -246,6 +249,31 @@ def sort_tasks(by: str = "created_at", ascending: bool = True, tasks: Optional[L
             return task.get(by)
 
     return sorted(tasks, key=sort_key, reverse=not ascending)
+
+user_list = []
+
+def create_user(name: str, email: str) -> dict:
+    name = name.strip()
+    email = email.strip().lower()
+
+    if not name:
+        raise ValueError("Name is required")
+    if len(name) > 50:
+        raise ValueError("Name cannot exceed 50 characters")
+    if not re.match(EMAIL_REGEX, email):
+        raise ValueError("Invalid email format")
+    if any(u["email"] == email for u in user_list):
+        raise ValueError("Email already in use")
+
+    user = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "email": email,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    user_list.append(user)
+    return user
+
 
 def get_tasks() -> List[Dict]:
     """Récupère la liste des tâches"""

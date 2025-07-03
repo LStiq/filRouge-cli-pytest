@@ -4,7 +4,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from task_manager import get_tasks, create_task, consult_task, update_task, delete_task, assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, filter_tasks_by_user, filter_tasks_combined
+from src.task_manager import get_tasks, create_task, consult_task, update_task, delete_task, assign_task, get_tasks_assigned_to_user, get_unassigned_tasks, get_users, get_user_by_id, filter_tasks_by_user, filter_tasks_combined
 
 console = Console()
 

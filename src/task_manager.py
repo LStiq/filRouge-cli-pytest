@@ -29,7 +29,8 @@ DEFAULT_TASKS = [
 # Default users for development
 DEFAULT_USERS = [
     {"id": "user-1", "name": "Alice Martin", "email": "alice@example.com"},
-    {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"}
+    {"id": "user-2", "name": "Bob Dupont", "email": "bob@example.com"},
+    {"id": "user-3", "name": "Charlie Brown", "email": "charlie@example.com"}
 ]
 
 EMAIL_REGEX = r"^[\w\.-]+@[\w\.-]+\.\w+$"
@@ -326,7 +327,7 @@ def get_tasks() -> List[Dict]:
 
 def get_users() -> List[Dict]:
     """Récupère la liste des utilisateurs"""
-    return _load_users()
+    return user_list
 
 def get_user_by_id(user_id: str) -> Optional[Dict]:
     """Récupère un utilisateur par son ID"""
@@ -420,3 +421,86 @@ def get_task_by_id(task_id: str) -> Dict:
             return task
 
     raise ValueError("Task not found")
+
+def filter_tasks_by_user(user_id: Optional[str] = None, page: int = 1, size: int = 20) -> Dict:
+    """Filtre les tâches par utilisateur assigné"""
+    if user_id is not None and user_id != "unassigned":
+        if not user_exists(user_id.strip()):
+            raise ValueError("User not found")
+        
+        filtered = [task for task in task_list if task.get("assigned_user") == user_id]
+    elif user_id == "unassigned":
+        filtered = [task for task in task_list if not task.get("assigned_user")]
+    else:
+        filtered = task_list
+
+    total_items = len(filtered)
+    total_pages = (total_items + size - 1) // size
+    items = paginate(filtered, page, size)
+
+    return {
+        "tasks": items,
+        "page": page,
+        "page_size": size,
+        "total_items": total_items,
+        "total_pages": total_pages
+    }
+
+def filter_tasks_combined(status: Optional[str] = None, user_id: Optional[str] = None, 
+                         query: Optional[str] = None, search_in: str = "both",
+                         page: int = 1, size: int = 20) -> Dict:
+    """Filtre les tâches avec plusieurs critères combinés"""
+    filtered = task_list
+
+    # Filtre par statut
+    if status is not None:
+        allowed_statuses = {"TODO", "ONGOING", "DONE"}
+        if status not in allowed_statuses:
+            raise ValueError("Invalid filter status")
+        filtered = [task for task in filtered if task.get("status") == status]
+
+    # Filtre par utilisateur
+    if user_id is not None and user_id != "unassigned":
+        if not user_exists(user_id):
+            raise ValueError("User not found")
+        filtered = [task for task in filtered if task.get("assigned_user") == user_id]
+    elif user_id == "unassigned":
+        filtered = [task for task in filtered if not task.get("assigned_user")]
+
+    # Filtre par recherche
+    if query and query.strip():
+        query = query.lower()
+        search_filtered = []
+        seen_ids = set()
+
+        for task in filtered:
+            title = task.get("title", "").lower()
+            description = (task.get("description") or "").lower()
+
+            match = False
+            if search_in == "title":
+                match = query in title
+            elif search_in == "description":
+                match = query in description
+            elif search_in == "both":
+                match = query in title or query in description
+            else:
+                match = query in title and query in description
+
+            if match and task["id"] not in seen_ids:
+                search_filtered.append(task)
+                seen_ids.add(task["id"])
+
+        filtered = search_filtered
+
+    total_items = len(filtered)
+    total_pages = (total_items + size - 1) // size
+    items = paginate(filtered, page, size)
+
+    return {
+        "tasks": items,
+        "page": page,
+        "page_size": size,
+        "total_items": total_items,
+        "total_pages": total_pages
+    }
